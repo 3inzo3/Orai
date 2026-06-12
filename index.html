@@ -44,9 +44,16 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   font-size:.8rem;font-weight:600;cursor:pointer;
 }
 .tabs button.active{background:var(--now);color:#21303d}
-.pick{display:none;gap:10px;margin:-6px 0 14px}
+.pick{display:none;flex-direction:column;gap:9px;margin:-6px 0 14px}
 .pick.show{display:flex}
+.pickrow{display:flex;gap:10px}
 .pick label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:var(--muted);font-weight:600}
+.seg{display:flex;gap:5px;background:var(--panel2);border-radius:10px;padding:3px;align-self:flex-start}
+.seg button{border:0;border-radius:8px;padding:6px 14px;background:transparent;color:var(--muted);font-size:.76rem;font-weight:600;cursor:pointer}
+.seg button.active{background:var(--past);color:#10212e}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.chips button{border:1px solid var(--line);border-radius:99px;padding:5px 11px;background:var(--panel2);color:var(--muted);font-size:.72rem;font-weight:600;cursor:pointer}
+.chips button.active{border-color:var(--past);color:var(--past)}
 .pick input{
   background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   color:var(--text);padding:8px 10px;font:inherit;font-size:.88rem;
@@ -75,7 +82,10 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .row .val{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .row .val small{color:var(--muted);font-size:.72rem}
 .rain{display:flex;justify-content:space-between;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:.76rem;color:var(--muted)}
-.rain b{color:var(--rain);font-weight:600}
+.rain b{font-weight:600}
+.rain b.bn{color:var(--now)}
+.rain b.bp{color:var(--past)}
+.rain small{color:var(--muted);font-weight:400}
 .city.tappable{cursor:pointer}
 .chartBox{margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
 .nochart{text-align:center;color:var(--muted);font-size:.78rem;padding:14px 0}
@@ -84,8 +94,8 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .chart text{fill:var(--muted);font-size:9px;text-anchor:middle}
 .chart text.yl{text-anchor:start}
 .chart text.rl{text-anchor:end;fill:var(--rain)}
-.chart rect.ra{fill:var(--now);opacity:.45}
-.chart rect.rb{fill:var(--past);opacity:.45}
+.chart rect.ra{fill:var(--now);opacity:.7}
+.chart rect.rb{fill:var(--past);opacity:.7}
 .chart path{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .chart .ln-now{stroke:var(--now)}
 .chart .ln-past{stroke:var(--past)}
@@ -143,12 +153,45 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 </div>
 
 <div class="pick" id="pick">
-  <label>Diena
-    <input type="date" id="dateA">
-  </label>
-  <label>Lyginti su
-    <input type="date" id="dateB">
-  </label>
+  <div class="seg" id="seg">
+    <button data-s="single" class="active">Diena</button>
+    <button data-s="range">Laikotarpis</button>
+  </div>
+  <div id="singleBox">
+    <div class="pickrow">
+      <label>Diena
+        <input type="date" id="dateA">
+      </label>
+      <label>Lyginti su
+        <input type="date" id="dateB">
+      </label>
+    </div>
+    <div class="chips" id="chipsSingle">
+      <button data-c="cal">Pernai ta pati data</button>
+      <button data-c="dow">Pernai ta pati sav. diena</button>
+    </div>
+  </div>
+  <div id="rangeBox" hidden>
+    <div class="pickrow">
+      <label>Nuo
+        <input type="date" id="rFrom">
+      </label>
+      <label>Iki
+        <input type="date" id="rTo">
+      </label>
+    </div>
+    <div class="chips" id="chipsRange">
+      <button data-r="w1" class="active">Prieš savaitę</button>
+      <button data-r="cal">Pernai (datos)</button>
+      <button data-r="dow">Pernai (sav. diena)</button>
+      <button data-r="custom">Kita…</button>
+    </div>
+    <div class="pickrow" id="rangeBRow" hidden>
+      <label>Lyginti nuo
+        <input type="date" id="rBFrom">
+      </label>
+    </div>
+  </div>
 </div>
 
 <div class="legend" id="legend">
@@ -172,6 +215,8 @@ const CITIES = [
 ];
 const DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum";
 let period = "day";
+let subMode = "single";   // „Data" tabo režimas: viena diena ar laikotarpis
+let rangeCmp = "w1";      // su kuo lyginti laikotarpį
 let calYear = new Date().getFullYear();
 let renderSeq = 0;
 const cache = {};
@@ -215,15 +260,36 @@ async function getJSON(url){
 
 // Savaitės/mėnesio suvestinėms (visi miestai): Open-Meteo paros duomenys —
 // meteo.lt neturi paros suvestinių, 30 d. po valandą būtų per daug užklausų
-async function fetchNow(c){
+async function fetchNow(c, past=31, fc=1){
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
-    + `&daily=${DAILY}&past_days=31&forecast_days=1&timezone=auto`;
+    + `&daily=${DAILY}&past_days=${past}&forecast_days=${fc}&timezone=auto`;
   return getJSON(url);
 }
 async function fetchPast(c, start, end){
   const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
     + `&start_date=${fmtDate(start)}&end_date=${fmtDate(end)}&daily=${DAILY}&timezone=auto`;
   return getJSON(url);
+}
+// Paros duomenys bet kokiam laikotarpiui: senesnė dalis iš archyvo,
+// paskutinės ~5 d. ir ateitis iš forecast API; sujungiama pagal datą
+async function rangeDaily(c, s, e){
+  const cut = shift(today0(), -6);
+  const datas = [];
+  if(s <= cut) datas.push(await fetchPast(c, s, e <= cut ? e : cut));
+  if(e > cut) datas.push(await fetchNow(c, 92, 16));
+  const merged = {daily:{time:[], temperature_2m_max:[], temperature_2m_min:[], precipitation_sum:[]}};
+  const seen = {};
+  datas.forEach(j => {
+    j.daily.time.forEach((t,i) => {
+      if(seen[t]) return;
+      seen[t] = 1;
+      merged.daily.time.push(t);
+      merged.daily.temperature_2m_max.push(j.daily.temperature_2m_max[i]);
+      merged.daily.temperature_2m_min.push(j.daily.temperature_2m_min[i]);
+      merged.daily.precipitation_sum.push(j.daily.precipitation_sum[i]);
+    });
+  });
+  return merged;
 }
 
 /* Vienos paros valandų duomenys: {temps[24], rain[24], src} */
@@ -342,7 +408,7 @@ function barWidth(t, min, max){
 }
 function deg(t){ return t===null ? "–" : t.toFixed(1)+"°"; }
 
-function cityCard(c, idx, now, past, tagNow, tagPast, rainNow, rainPast){
+function cityCard(c, idx, now, past, o){
   let scaleMin = Math.min(now.tmin??99, past.tmin??99, 0);
   let scaleMax = Math.max(now.tmax??-99, past.tmax??-99, 5);
 
@@ -361,18 +427,21 @@ function cityCard(c, idx, now, past, tagNow, tagPast, rainNow, rainPast){
       <span class="val">${deg(st.tavg)} <small>${deg(st.tmin)}/${deg(st.tmax)}</small></span>
     </div>`;
 
-  const tappable = period==="day" || period==="custom";
-  return `<div class="city${tappable?" tappable":""}" data-i="${idx}">
+  // suma + paros vidurkis, kai laikotarpis ilgesnis nei diena
+  const rainVal = r => r===null ? "–"
+    : r.toFixed(1)+" mm" + (o.nDays>1 && r>0 ? ` <small>(${(r/o.nDays).toFixed(1)}/d.)</small>` : "");
+
+  return `<div class="city${o.tappable?" tappable":""}" data-i="${idx}">
     <h2>${c.name} ${deltaHTML}</h2>
     <div class="rows">
-      ${row(tagNow, now, "now")}
-      ${row(tagPast, past, "past")}
+      ${row(o.tagNow, now, "now")}
+      ${row(o.tagPast, past, "past")}
     </div>
     <div class="rain">
-      <span>Krituliai ${rainNow}: <b>${now.rain===null?"–":now.rain.toFixed(1)+" mm"}</b></span>
-      <span>${rainPast}: <b>${past.rain===null?"–":past.rain.toFixed(1)+" mm"}</b></span>
+      <span>Krituliai${o.rainNow?" "+o.rainNow:""}: <b class="bn">${rainVal(now.rain)}</b></span>
+      <span>${o.rainPast?o.rainPast+": ":""}<b class="bp">${rainVal(past.rain)}</b></span>
     </div>
-    ${tappable ? '<div class="chartBox" hidden></div>' : ""}
+    ${o.tappable ? '<div class="chartBox" hidden></div>' : ""}
   </div>`;
 }
 
@@ -463,6 +532,22 @@ function isoWeek(d){
   const w1 = new Date(t.getFullYear(), 0, 4);
   return 1 + Math.round(((t - w1)/86400000 - 3 + ((w1.getDay()+6)%7))/7);
 }
+function isoYear(d){
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  t.setDate(t.getDate() + 3 - ((t.getDay()+6)%7));
+  return t.getFullYear();
+}
+function isoWeeksInYear(y){ return isoWeek(new Date(y, 11, 28)); }
+// Ta pati ISO savaitė ir ta pati savaitės diena praėjusiais metais
+// (pvz., 2026 m. 3 sav. antradienis → 2025 m. 3 sav. antradienis)
+function isoAlign(d){
+  const y = isoYear(d) - 1;
+  const w = Math.min(isoWeek(d), isoWeeksInYear(y));
+  const wd = (d.getDay()+6)%7;
+  const jan4 = new Date(y, 0, 4);
+  const mon1 = shift(jan4, -((jan4.getDay()+6)%7));
+  return shift(mon1, (w-1)*7 + wd);
+}
 
 function holidayList(y){
   const E = easter(y), L = [];
@@ -549,7 +634,7 @@ async function render(){
   const seq = ++renderSeq;
   const statusEl = document.getElementById("status");
   const box = document.getElementById("cities");
-  const isDayMode = period==="day" || period==="custom";
+  const isDayMode = period==="day" || (period==="custom" && subMode==="single");
   document.getElementById("hint").style.display = isDayMode ? "" : "none";
   document.getElementById("legend").style.display = period==="year" ? "none" : "";
   document.getElementById("pick").classList.toggle("show", period==="custom");
@@ -583,7 +668,25 @@ async function render(){
       setLegend(lA, lB);
       html = await Promise.all(CITIES.map(async (c, i) => {
         const [ha, hb] = await Promise.all([getDayHours(c, dA), getDayHours(c, dB)]);
-        return cityCard(c, i, statsFromHours(ha), statsFromHours(hb), lA, lB, rA, rB);
+        return cityCard(c, i, statsFromHours(ha), statsFromHours(hb),
+          {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:1, tappable:true});
+      }));
+    }else if(period === "custom"){
+      // Laikotarpio palyginimas
+      let s = parseDate(document.getElementById("rFrom").value);
+      let e2 = parseDate(document.getElementById("rTo").value);
+      if(e2 < s){ const t = s; s = e2; e2 = t; }
+      const len = Math.round((e2 - s)/86400000);
+      const bs = rangeBStart(s);
+      const be = shift(bs, len);
+      const lA = `${fmtDate(s)} – ${fmtDate(e2)}`;
+      const lB = `${fmtDate(bs)} – ${fmtDate(be)}`;
+      document.getElementById("dateLabel").textContent = `${len+1} d. laikotarpis`;
+      setLegend(lA, lB);
+      html = await Promise.all(CITIES.map(async (c, i) => {
+        const [da, db] = await Promise.all([rangeDaily(c, s, e2), rangeDaily(c, bs, be)]);
+        return cityCard(c, i, stats(slicePeriod(da, s, e2)), stats(slicePeriod(db, bs, be)),
+          {tagNow:fmtDate(s), tagPast:fmtDate(bs), rainNow:"", rainPast:"", nDays:len+1, tappable:false});
       }));
     }else{
       const today = new Date();
@@ -599,7 +702,8 @@ async function render(){
         ]);
         const now  = stats(slicePeriod(nowData, start, today));
         const past = stats(slicePeriod(pastData, pStart, pEnd));
-        return cityCard(c, i, now, past, "Šiemet", "Pernai", "šiemet", "pernai");
+        return cityCard(c, i, now, past,
+          {tagNow:"Šiemet", tagPast:"Pernai", rainNow:"šiemet", rainPast:"pernai", nDays:n, tappable:false});
       }));
     }
     if(seq !== renderSeq) return;
@@ -614,16 +718,63 @@ async function render(){
 /* ---------- Įvykiai ---------- */
 const dateA = document.getElementById("dateA");
 const dateB = document.getElementById("dateB");
+const rFrom = document.getElementById("rFrom");
+const rTo = document.getElementById("rTo");
+const rBFrom = document.getElementById("rBFrom");
 {
   const today = new Date();
   dateA.value = fmtDate(today);
   dateB.value = fmtDate(lastYear(today));
-  dateA.max = dateB.max = fmtDate(shift(today, 15));
-  dateA.min = dateB.min = "1940-01-01";
+  // numatytasis laikotarpis — praėjęs savaitgalis
+  const dow = (today.getDay()+6)%7;
+  const lastSat = shift(today, -(dow+2));
+  rFrom.value = fmtDate(lastSat);
+  rTo.value = fmtDate(shift(lastSat, 1));
+  rBFrom.value = fmtDate(shift(lastSat, -7));
+  [dateA, dateB, rFrom, rTo, rBFrom].forEach(el => {
+    el.max = fmtDate(shift(today, 15));
+    el.min = "1940-01-01";
+  });
 }
 [dateA, dateB].forEach(el => el.addEventListener("change", () => {
-  if(el.value && period === "custom") render();
+  if(el.value && period === "custom" && subMode === "single") render();
 }));
+[rFrom, rTo, rBFrom].forEach(el => el.addEventListener("change", () => {
+  if(el.value && period === "custom" && subMode === "range") render();
+}));
+
+function rangeBStart(s){
+  if(rangeCmp === "cal") return lastYear(s);
+  if(rangeCmp === "dow") return isoAlign(s);
+  if(rangeCmp === "custom" && rBFrom.value) return parseDate(rBFrom.value);
+  return shift(s, -7);
+}
+
+document.getElementById("seg").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b) return;
+  subMode = b.dataset.s;
+  document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("active", x===b));
+  document.getElementById("singleBox").hidden = subMode !== "single";
+  document.getElementById("rangeBox").hidden = subMode !== "range";
+  render();
+});
+// Greitas dienos B parinkimas: kalendorinė data pernai arba ta pati sav. diena
+document.getElementById("chipsSingle").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b || !dateA.value) return;
+  const dA = parseDate(dateA.value);
+  dateB.value = fmtDate(b.dataset.c === "dow" ? isoAlign(dA) : lastYear(dA));
+  render();
+});
+document.getElementById("chipsRange").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b) return;
+  rangeCmp = b.dataset.r;
+  document.querySelectorAll("#chipsRange button").forEach(x => x.classList.toggle("active", x===b));
+  document.getElementById("rangeBRow").hidden = rangeCmp !== "custom";
+  render();
+});
 
 // Kalendoriaus navigacija + valandų grafiko išskleidimas
 document.getElementById("cities").addEventListener("click", async e => {
