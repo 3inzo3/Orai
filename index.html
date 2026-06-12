@@ -111,7 +111,6 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .chart path{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .chart .ln-now{stroke:var(--now)}
 .chart .ln-past{stroke:var(--past)}
-.src{font-size:.62rem;color:var(--muted);text-align:right;margin-top:4px;opacity:.75}
 #hint{font-size:.7rem;color:var(--muted);margin:-4px 2px 10px;opacity:.8}
 #status{text-align:center;color:var(--muted);font-size:.85rem;padding:30px 10px;line-height:1.5}
 footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opacity:.7}
@@ -219,13 +218,13 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 <div id="status">Kraunami duomenys…</div>
 <div id="cities"></div>
 
-<footer>Duomenys: meteo.lt (LT miestai) · open-meteo.com (Ryga, archyvas, prognozė)</footer>
+<footer>Duomenys: open-meteo.com · stebėjimai, archyvas nuo 1940 m., prognozė</footer>
 
 <script>
 const CITIES = [
-  {name:"Vilnius",  lat:54.69, lon:25.28, st:"vilniaus-ams",  pl:"vilnius"},
-  {name:"Klaipėda", lat:55.71, lon:21.13, st:"klaipedos-ams", pl:"klaipeda"},
-  {name:"Šiauliai", lat:55.93, lon:23.31, st:"siauliu-ams",   pl:"siauliai"},
+  {name:"Vilnius",  lat:54.69, lon:25.28},
+  {name:"Klaipėda", lat:55.71, lon:21.13},
+  {name:"Šiauliai", lat:55.93, lon:23.31},
   {name:"Ryga",     lat:56.95, lon:24.11},
 ];
 const DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum";
@@ -261,6 +260,8 @@ function parseDate(s){
 function shift(d, days){ const n = new Date(d); n.setDate(n.getDate()+days); return n; }
 function lastYear(d){ const n = new Date(d); n.setFullYear(n.getFullYear()-1); return n; }
 function fShort(d){ return d.toLocaleDateString("lt-LT",{month:"2-digit",day:"2-digit"}); }
+// Trumpa data kortelių žymoms: 26-06-12 (pilna 2026-06-12 netelpa stulpelyje)
+function fShortY(d){ return fmtDate(d).slice(2); }
 function today0(){ return parseDate(fmtDate(new Date())); }
 
 function avg(arr){
@@ -284,13 +285,13 @@ async function getJSON(url){
   return j;
 }
 
-// Savaitės/mėnesio suvestinėms (visi miestai): Open-Meteo paros duomenys —
-// meteo.lt neturi paros suvestinių, 30 d. po valandą būtų per daug užklausų
-async function fetchNow(c, past=31, fc=1){
+// Paros suvestinės: pastarosios ~3 mėn. ir prognozė
+async function fetchRecent(c){
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
-    + `&daily=${DAILY}&past_days=${past}&forecast_days=${fc}&timezone=auto`;
+    + `&daily=${DAILY}&past_days=92&forecast_days=16&timezone=auto`;
   return getJSON(url);
 }
+// Paros suvestinės iš archyvo (nuo 1940 m., vėluoja ~5 d.)
 async function fetchPast(c, start, end){
   const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
     + `&start_date=${fmtDate(start)}&end_date=${fmtDate(end)}&daily=${DAILY}&timezone=auto`;
@@ -302,7 +303,7 @@ async function rangeDaily(c, s, e){
   const cut = shift(today0(), -6);
   const datas = [];
   if(s <= cut) datas.push(await fetchPast(c, s, e <= cut ? e : cut));
-  if(e > cut) datas.push(await fetchNow(c, 92, 16));
+  if(e > cut) datas.push(await fetchRecent(c));
   const merged = {daily:{time:[], temperature_2m_max:[], temperature_2m_min:[], precipitation_sum:[]}};
   const seen = {};
   datas.forEach(j => {
@@ -318,79 +319,35 @@ async function rangeDaily(c, s, e){
   return merged;
 }
 
-/* Vienos paros valandų duomenys: {temps[24], rain[24], src} */
-
-// meteo.lt laikai pateikiami UTC — konvertuojam į lokalų laiką
-function tsToHours(list, tKey, tempKey, rainKey, d){
-  const temps = Array(24).fill(null), rain = Array(24).fill(null);
-  const key = fmtDate(d);
-  (list||[]).forEach(o => {
-    const dt = new Date(o[tKey].replace(" ","T") + "Z");
-    if(fmtDate(dt) === key){
-      const h = dt.getHours();
-      temps[h] = o[tempKey];
-      rain[h] = o[rainKey];
-    }
-  });
-  return {temps, rain, src:"meteo.lt"};
-}
-
-async function ltDayHours(c, d){
-  if(d > today0()){
-    const j = await getJSON(`https://api.meteo.lt/v1/places/${c.pl}/forecasts/long-term`);
-    return tsToHours(j.forecastTimestamps, "forecastTimeUtc", "airTemperature", "totalPrecipitation", d);
-  }
-  // lokali para apima dvi UTC datas, tad imam dvi stoties dienas
-  const [a,b] = await Promise.all([
-    getJSON(`https://api.meteo.lt/v1/stations/${c.st}/observations/${fmtDate(shift(d,-1))}`),
-    getJSON(`https://api.meteo.lt/v1/stations/${c.st}/observations/${fmtDate(d)}`)
-  ]);
-  return tsToHours([...(a.observations||[]), ...(b.observations||[])],
-    "observationTimeUtc", "airTemperature", "precipitation", d);
-}
-
-async function omDayHours(c, d){
-  const diff = Math.round((today0() - d)/86400000);
-  const empty = {temps:Array(24).fill(null), rain:Array(24).fill(null), src:"open-meteo.com"};
-  if(diff < -15) return empty;
-  let j;
-  if(diff <= 88){
-    j = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
-      + `&hourly=temperature_2m,precipitation&past_days=92&forecast_days=16&timezone=auto`);
-  }else{
-    j = await getJSON(`https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
-      + `&start_date=${fmtDate(d)}&end_date=${fmtDate(d)}&hourly=temperature_2m,precipitation&timezone=auto`);
-  }
-  const temps = Array(24).fill(null), rain = Array(24).fill(null);
-  const key = fmtDate(d) + "T";
-  j.hourly.time.forEach((t,i) => {
-    if(t.startsWith(key)){
-      const h = +t.slice(11,13);
-      temps[h] = j.hourly.temperature_2m[i];
-      rain[h] = j.hourly.precipitation[i];
-    }
-  });
-  return {temps, rain, src:"open-meteo.com"};
-}
-
-// LT miestams pirma meteo.lt; nepavykus (CORS, sena data, limitai) — Open-Meteo.
-// Šiandienai rodome tik iki paskutinės sveikos valandos (pvz., 22:32 → iki 22:00).
+/* Vienos paros valandų duomenys: {temps[24], rain[24]}.
+   Šiandienai rodome tik iki paskutinės sveikos valandos (pvz., 22:32 → iki 22:00). */
 async function getDayHours(c, d){
   const key = c.name + "|" + fmtDate(d);
   if(dayCache[key]) return dayCache[key];
-  let res = null;
-  if(c.st){
-    try{ res = await ltDayHours(c, d); }catch(e){ res = null; }
-    if(res && res.temps.every(v => v===null || v===undefined)) res = null;
+  const temps = Array(24).fill(null), rain = Array(24).fill(null);
+  const diff = Math.round((today0() - d)/86400000);
+  if(diff >= -15){
+    const url = diff <= 88
+      ? `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
+        + `&hourly=temperature_2m,precipitation&past_days=92&forecast_days=16&timezone=auto`
+      : `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
+        + `&start_date=${fmtDate(d)}&end_date=${fmtDate(d)}&hourly=temperature_2m,precipitation&timezone=auto`;
+    const j = await getJSON(url);
+    const pre = fmtDate(d) + "T";
+    j.hourly.time.forEach((t,i) => {
+      if(t.startsWith(pre)){
+        const h = +t.slice(11,13);
+        temps[h] = j.hourly.temperature_2m[i];
+        rain[h] = j.hourly.precipitation[i];
+      }
+    });
   }
-  if(!res) res = await omDayHours(c, d);
   if(fmtDate(d) === fmtDate(new Date())){
     for(let h = new Date().getHours()+1; h < 24; h++){
-      res.temps[h] = null; res.rain[h] = null;
+      temps[h] = null; rain[h] = null;
     }
   }
-  dayCache[key] = res;
-  return res;
+  return dayCache[key] = {temps, rain};
 }
 
 /* ---------- Statistika ---------- */
@@ -526,17 +483,8 @@ function chartSVG(A, B){
     <path class="ln-now" d="${pathFor(A.temps,x,y)}"/>${raxis}</svg>`;
 }
 
-// Kurias dvi dienas rodyti grafike pagal aktyvų režimą
-function chartDates(){
-  if(period === "custom"){
-    return {
-      dA: parseDate(document.getElementById("dateA").value),
-      dB: parseDate(document.getElementById("dateB").value)
-    };
-  }
-  const t = today0();
-  return {dA: t, dB: lastYear(t)};
-}
+// Kurias dvi dienas rodo valandų grafikas — nustatoma render() metu
+let chartDays = null;
 
 /* ---------- Metų kalendorius su LT/LV šventėmis ---------- */
 // Velykų sekmadienis (anoniminis Grigaliaus algoritmas)
@@ -652,9 +600,6 @@ function setLegend(a, b){
   document.getElementById("legNow").textContent = a;
   document.getElementById("legPast").textContent = b;
 }
-function labelFor(start, end){
-  return period==="day" ? fShort(end) : `${fShort(start)} – ${fShort(end)}`;
-}
 
 async function render(){
   const seq = ++renderSeq;
@@ -683,54 +628,61 @@ async function render(){
       if(period === "custom"){
         dA = parseDate(document.getElementById("dateA").value);
         dB = parseDate(document.getElementById("dateB").value);
-        lA = rA = fmtDate(dA);            // pilna data su metais, kad nesimaišytų
-        lB = rB = fmtDate(dB);
-        document.getElementById("dateLabel").textContent = `${lA} vs ${lB}`;
+        lA = rA = fShortY(dA);            // 26-06-12 — su metais, bet telpa stulpelyje
+        lB = rB = fShortY(dB);
+        document.getElementById("dateLabel").textContent = `${fmtDate(dA)} vs ${fmtDate(dB)}`;
       }else{
-        dA = today0(); dB = lastYear(dA);
+        // Šiandien vs ta pati savaitės diena pernai (penktadienis su penktadieniu)
+        dA = today0(); dB = isoAlign(dA);
         lA = "Šiemet"; lB = "Pernai"; rA = "šiemet"; rB = "pernai";
-        document.getElementById("dateLabel").textContent = fShort(dA);
+        document.getElementById("dateLabel").textContent = `${fShort(dA)} vs ${fShort(dB)} (pernai)`;
       }
+      chartDays = {dA, dB};
       setLegend(lA, lB);
       html = await Promise.all(CITIES.map(async (c, i) => {
         const [ha, hb] = await Promise.all([getDayHours(c, dA), getDayHours(c, dB)]);
         return cityCard(c, i, statsFromHours(ha), statsFromHours(hb),
           {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:1, tappable:true});
       }));
-    }else if(period === "custom"){
-      // Laikotarpio palyginimas
-      let s = parseDate(document.getElementById("rFrom").value);
-      let e2 = parseDate(document.getElementById("rTo").value);
-      if(e2 < s){ const t = s; s = e2; e2 = t; }
+    }else{
+      // Daugiadieniai laikotarpiai: A (šis) ir B (lyginamasis)
+      let s, e2, bs, lA, lB, rA = "", rB = "";
+      if(period === "custom"){
+        s = parseDate(document.getElementById("rFrom").value);
+        e2 = parseDate(document.getElementById("rTo").value);
+        if(e2 < s){ const t = s; s = e2; e2 = t; }
+        bs = rangeBStart(s);
+      }else if(period === "week"){
+        // Einanti ISO savaitė nuo pirmadienio iki šiandien
+        // vs ta pati ISO savaitė pernai (tos pačios savaitės dienos)
+        e2 = today0();
+        s = shift(e2, -((e2.getDay()+6)%7));
+        bs = isoAlign(s);
+      }else{
+        // Einantis mėnuo nuo 1 d. iki šiandien vs tas pats mėnuo pernai 1 d. – ta pati diena
+        e2 = today0();
+        s = new Date(e2.getFullYear(), e2.getMonth(), 1);
+        bs = new Date(e2.getFullYear()-1, e2.getMonth(), 1);
+      }
       const len = Math.round((e2 - s)/86400000);
-      const bs = rangeBStart(s);
       const be = shift(bs, len);
-      const lA = `${fmtDate(s)} – ${fmtDate(e2)}`;
-      const lB = `${fmtDate(bs)} – ${fmtDate(be)}`;
-      document.getElementById("dateLabel").textContent = `${len+1} d. laikotarpis`;
-      document.getElementById("cmpInfo").innerHTML = `Lyginama su: <b>${lB}</b>`;
-      setLegend(lA, lB);
+      if(period === "custom"){
+        lA = fShortY(s); lB = fShortY(bs);
+        document.getElementById("dateLabel").textContent = `${len+1} d. laikotarpis`;
+        document.getElementById("cmpInfo").innerHTML =
+          `Lyginama su: <b>${fmtDate(bs)} – ${fmtDate(be)}</b>`;
+        setLegend(`${fmtDate(s)} – ${fmtDate(e2)}`, `${fmtDate(bs)} – ${fmtDate(be)}`);
+      }else{
+        lA = "Šiemet"; lB = "Pernai"; rA = "šiemet"; rB = "pernai";
+        const wk = period==="week" ? `${isoWeek(e2)} sav.: ` : "";
+        document.getElementById("dateLabel").textContent =
+          `${wk}${fShort(s)} – ${fShort(e2)} vs ${fShort(bs)} – ${fShort(be)}`;
+        setLegend("Šiemet", "Pernai");
+      }
       html = await Promise.all(CITIES.map(async (c, i) => {
         const [da, db] = await Promise.all([rangeDaily(c, s, e2), rangeDaily(c, bs, be)]);
         return cityCard(c, i, stats(slicePeriod(da, s, e2)), stats(slicePeriod(db, bs, be)),
-          {tagNow:fmtDate(s), tagPast:fmtDate(bs), rainNow:"", rainPast:"", nDays:len+1, tappable:false});
-      }));
-    }else{
-      const today = new Date();
-      const n = period==="week" ? 7 : 30;
-      const start = shift(today, -(n-1));
-      const pStart = lastYear(start), pEnd = lastYear(today);
-      document.getElementById("dateLabel").textContent = labelFor(start, today);
-      setLegend("Šiemet", "Pernai");
-      html = await Promise.all(CITIES.map(async (c, i) => {
-        const [nowData, pastData] = await Promise.all([
-          fetchNow(c),
-          fetchPast(c, shift(pStart,-2), shift(pEnd,2))
-        ]);
-        const now  = stats(slicePeriod(nowData, start, today));
-        const past = stats(slicePeriod(pastData, pStart, pEnd));
-        return cityCard(c, i, now, past,
-          {tagNow:"Šiemet", tagPast:"Pernai", rainNow:"šiemet", rainPast:"pernai", nDays:n, tappable:false});
+          {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:len+1, tappable:false});
       }));
     }
     if(seq !== renderSeq) return;
@@ -817,11 +769,11 @@ document.getElementById("cities").addEventListener("click", async e => {
   if(boxEl.dataset.loaded) return;
   boxEl.innerHTML = '<div class="nochart">Kraunama…</div>';
   const c = CITIES[+card.dataset.i];
-  const {dA, dB} = chartDates();
+  if(!chartDays) return;
+  const {dA, dB} = chartDays;
   try{
     const [ra, rb] = await Promise.all([getDayHours(c, dA), getDayHours(c, dB)]);
-    boxEl.innerHTML = chartSVG(ra, rb)
-      + `<div class="src">Šaltinis: ${ra.src}${ra.src!==rb.src ? " / "+rb.src : ""}</div>`;
+    boxEl.innerHTML = chartSVG(ra, rb);
     boxEl.dataset.loaded = "1";
   }catch(err){
     boxEl.innerHTML = '<div class="nochart">Nepavyko užkrauti (' + err.message + ')</div>';
