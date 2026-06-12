@@ -23,6 +23,7 @@
   --rain:#5fa8d3;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
 body{
   background:var(--bg);
@@ -59,9 +60,12 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .seg{display:flex;gap:5px;background:var(--panel2);border-radius:10px;padding:3px;align-self:flex-start}
 .seg button{border:0;border-radius:8px;padding:6px 14px;background:transparent;color:var(--muted);font-size:.76rem;font-weight:600;cursor:pointer}
 .seg button.active{background:var(--past);color:#10212e}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .chips button{border:1px solid var(--line);border-radius:99px;padding:5px 11px;background:var(--panel2);color:var(--muted);font-size:.72rem;font-weight:600;cursor:pointer}
 .chips button.active{border-color:var(--past);color:var(--past)}
+.picklabel{display:block;font-size:.7rem;color:var(--muted);font-weight:600;margin-top:9px;text-transform:uppercase;letter-spacing:.4px;opacity:.8}
+#cmpInfo{font-size:.74rem;color:var(--muted);margin-top:7px}
+#cmpInfo b{color:var(--past);font-weight:600;font-variant-numeric:tabular-nums}
 .pick input{
   background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   color:var(--text);padding:8px 10px;font:inherit;font-size:.88rem;
@@ -168,8 +172,8 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 
 <div class="pick" id="pick">
   <div class="seg" id="seg">
-    <button data-s="single" class="active">Diena</button>
-    <button data-s="range">Laikotarpis</button>
+    <button data-s="single" class="active">Viena diena</button>
+    <button data-s="range">Kelios dienos</button>
   </div>
   <div id="singleBox">
     <div class="pickrow">
@@ -180,6 +184,7 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
         <input type="date" id="dateB">
       </label>
     </div>
+    <span class="picklabel">Greitas „lyginti su“ pasirinkimas</span>
     <div class="chips" id="chipsSingle">
       <button data-c="cal">Pernai ta pati data</button>
       <button data-c="dow">Pernai ta pati sav. diena</button>
@@ -187,24 +192,20 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
   </div>
   <div id="rangeBox" hidden>
     <div class="pickrow">
-      <label>Nuo
+      <label>Laikotarpis nuo
         <input type="date" id="rFrom">
       </label>
-      <label>Iki
+      <label>iki (imtinai)
         <input type="date" id="rTo">
       </label>
     </div>
+    <span class="picklabel">Su kuo lyginti</span>
     <div class="chips" id="chipsRange">
       <button data-r="w1" class="active">Prieš savaitę</button>
-      <button data-r="cal">Pernai (datos)</button>
-      <button data-r="dow">Pernai (sav. diena)</button>
-      <button data-r="custom">Kita…</button>
+      <button data-r="cal">Pernai (tos pačios datos)</button>
+      <button data-r="dow">Pernai (tos pačios sav. dienos)</button>
     </div>
-    <div class="pickrow" id="rangeBRow" hidden>
-      <label>Lyginti nuo
-        <input type="date" id="rBFrom">
-      </label>
-    </div>
+    <div id="cmpInfo"></div>
   </div>
 </div>
 
@@ -707,6 +708,7 @@ async function render(){
       const lA = `${fmtDate(s)} – ${fmtDate(e2)}`;
       const lB = `${fmtDate(bs)} – ${fmtDate(be)}`;
       document.getElementById("dateLabel").textContent = `${len+1} d. laikotarpis`;
+      document.getElementById("cmpInfo").innerHTML = `Lyginama su: <b>${lB}</b>`;
       setLegend(lA, lB);
       html = await Promise.all(CITIES.map(async (c, i) => {
         const [da, db] = await Promise.all([rangeDaily(c, s, e2), rangeDaily(c, bs, be)]);
@@ -746,7 +748,6 @@ const dateA = document.getElementById("dateA");
 const dateB = document.getElementById("dateB");
 const rFrom = document.getElementById("rFrom");
 const rTo = document.getElementById("rTo");
-const rBFrom = document.getElementById("rBFrom");
 {
   const today = new Date();
   dateA.value = fmtDate(today);
@@ -756,8 +757,7 @@ const rBFrom = document.getElementById("rBFrom");
   const lastSat = shift(today, -(dow+2));
   rFrom.value = fmtDate(lastSat);
   rTo.value = fmtDate(shift(lastSat, 1));
-  rBFrom.value = fmtDate(shift(lastSat, -7));
-  [dateA, dateB, rFrom, rTo, rBFrom].forEach(el => {
+  [dateA, dateB, rFrom, rTo].forEach(el => {
     el.max = fmtDate(shift(today, 15));
     el.min = "1940-01-01";
   });
@@ -765,14 +765,13 @@ const rBFrom = document.getElementById("rBFrom");
 [dateA, dateB].forEach(el => el.addEventListener("change", () => {
   if(el.value && period === "custom" && subMode === "single") render();
 }));
-[rFrom, rTo, rBFrom].forEach(el => el.addEventListener("change", () => {
+[rFrom, rTo].forEach(el => el.addEventListener("change", () => {
   if(el.value && period === "custom" && subMode === "range") render();
 }));
 
 function rangeBStart(s){
   if(rangeCmp === "cal") return lastYear(s);
   if(rangeCmp === "dow") return isoAlign(s);
-  if(rangeCmp === "custom" && rBFrom.value) return parseDate(rBFrom.value);
   return shift(s, -7);
 }
 
@@ -798,7 +797,6 @@ document.getElementById("chipsRange").addEventListener("click", e => {
   if(!b) return;
   rangeCmp = b.dataset.r;
   document.querySelectorAll("#chipsRange button").forEach(x => x.classList.toggle("active", x===b));
-  document.getElementById("rangeBRow").hidden = rangeCmp !== "custom";
   render();
 });
 
