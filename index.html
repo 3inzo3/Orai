@@ -107,11 +107,11 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .cdelta{font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
 .bad{margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:.76rem;color:var(--muted)}
 .bad b{color:var(--text);font-weight:700}
-.dots{display:flex;align-items:center;gap:3px;margin-top:5px}
+.dots{display:flex;align-items:center;gap:4px;margin-top:6px}
 .dots .lab{width:13px;font-size:.62rem;font-weight:700;flex:none}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:none}
 .dot.bd{background:var(--warm)}
-.dot.rn{background:var(--rain)}
+.dot.rn{box-shadow:0 0 0 1.5px var(--rain)}
 .dot.na{background:transparent;border:1px solid var(--line)}
 .badcap{font-size:.6rem;color:var(--muted);opacity:.75;margin-top:5px}
 .city.tappable{cursor:pointer}
@@ -575,9 +575,10 @@ function badDaysHTML(daysA, daysB){
       if(!info){ dots += `<span class="dot na" title="${d.date}: nėra duomenų"></span>`; return; }
       known++;
       if(info.bad) bad++;
-      // bloga (oranžinis) svarbiau už dienos lietų (mėlynas)
+      // užpildas — gera/bloga diena, mėlynas apvadas — lietus 10–20 val.;
+      // abu gali būti kartu (bloga diena su dienos lietumi)
       const wetDay = d.rain1020 !== null && d.rain1020 >= DAYRAIN.minMm;
-      const cls = info.bad ? " bd" : wetDay ? " rn" : "";
+      const cls = (info.bad ? " bd" : "") + (wetDay ? " rn" : "");
       const why = info.why + (wetDay ? `; lietus ${DAYRAIN.fromH-1}–${DAYRAIN.toH} val.: ${d.rain1020.toFixed(1)} mm` : "");
       dots += `<span class="dot${cls}" title="${d.date}: ${why}"></span>`;
     });
@@ -588,7 +589,7 @@ function badDaysHTML(daysA, daysB){
     <div>Blogos dienos: <b>${a.bad} iš ${a.known}</b> <span>(pernai: ${b.bad} iš ${b.known})</span></div>
     <div class="dots"><span class="lab" style="color:var(--now)">Š</span>${a.dots}</div>
     <div class="dots"><span class="lab" style="color:var(--past)">P</span>${b.dots}</div>
-    <div class="badcap">oranžinis — bloga diena · mėlynas — lietus 10–20 val.</div>
+    <div class="badcap">oranžinis — bloga diena · mėlynas apvadas — lietus 10–20 val.</div>
   </div>`;
 }
 
