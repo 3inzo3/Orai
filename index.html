@@ -44,6 +44,14 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   font-size:.88rem;font-weight:600;cursor:pointer;
 }
 .tabs button.active{background:var(--now);color:#21303d}
+.pick{display:none;gap:10px;margin:-6px 0 14px}
+.pick.show{display:flex}
+.pick label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:var(--muted);font-weight:600}
+.pick input{
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  color:var(--text);padding:8px 10px;font:inherit;font-size:.88rem;
+  width:100%;color-scheme:dark;
+}
 .legend{display:flex;gap:16px;font-size:.74rem;color:var(--muted);margin:0 2px 10px}
 .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}
 .legend .l-now::before{background:var(--now)}
@@ -85,11 +93,21 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
   <button data-p="day" class="active">Diena</button>
   <button data-p="week">Savaitė</button>
   <button data-p="month">Mėnuo</button>
+  <button data-p="custom">Data</button>
+</div>
+
+<div class="pick" id="pick">
+  <label>Diena
+    <input type="date" id="dateA">
+  </label>
+  <label>Lyginti su
+    <input type="date" id="dateB">
+  </label>
 </div>
 
 <div class="legend">
-  <span class="l-now">Šiemet</span>
-  <span class="l-past">Pernai</span>
+  <span class="l-now" id="legNow">Šiemet</span>
+  <span class="l-past" id="legPast">Pernai</span>
 </div>
 
 <div id="status">Kraunami duomenys…</div>
@@ -106,11 +124,21 @@ const CITIES = [
 ];
 const DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum";
 let period = "day";
+let renderSeq = 0;
 const cache = {};
 
-function fmtDate(d){ return d.toISOString().slice(0,10); }
+// Lokali data YYYY-MM-DD (toISOString naktį nuslinktų į vakar dieną dėl UTC)
+function fmtDate(d){
+  const p = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function parseDate(s){
+  const [y,m,d] = s.split("-").map(Number);
+  return new Date(y, m-1, d);
+}
 function shift(d, days){ const n = new Date(d); n.setDate(n.getDate()+days); return n; }
 function lastYear(d){ const n = new Date(d); n.setFullYear(n.getFullYear()-1); return n; }
+function fShort(d){ return d.toLocaleDateString("lt-LT",{month:"2-digit",day:"2-digit"}); }
 
 function periodDays(){ return period==="day" ? 1 : period==="week" ? 7 : 30; }
 
@@ -146,6 +174,19 @@ async function fetchPast(c, start, end){
     + `&start_date=${fmtDate(start)}&end_date=${fmtDate(end)}&daily=${DAILY}&timezone=auto`;
   return getJSON(url);
 }
+// Bet kuri viena diena: nesenoms datoms forecast API (archyvas vėluoja ~5 d.),
+// senesnėms — archyvas
+async function fetchDay(c, d){
+  const today = parseDate(fmtDate(new Date()));
+  const diff = Math.round((today - d)/86400000);
+  if(diff < -15) return {daily:{time:[],temperature_2m_max:[],temperature_2m_min:[],precipitation_sum:[]}};
+  if(diff <= 88){
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
+      + `&daily=${DAILY}&past_days=92&forecast_days=16&timezone=auto`;
+    return getJSON(url);
+  }
+  return fetchPast(c, d, d);
+}
 
 function slicePeriod(data, start, end){
   const t = data.daily.time;
@@ -178,7 +219,7 @@ function barWidth(t, min, max){
 
 function deg(t){ return t===null ? "–" : t.toFixed(1)+"°"; }
 
-function cityCard(c, now, past){
+function cityCard(c, now, past, tagNow, tagPast, rainNow, rainPast){
   let scaleMin = Math.min(now.tmin??99, past.tmin??99, 0);
   let scaleMax = Math.max(now.tmax??-99, past.tmax??-99, 5);
 
@@ -200,56 +241,92 @@ function cityCard(c, now, past){
   return `<div class="city">
     <h2>${c.name} ${deltaHTML}</h2>
     <div class="rows">
-      ${row("Šiemet", now, "now")}
-      ${row("Pernai", past, "past")}
+      ${row(tagNow, now, "now")}
+      ${row(tagPast, past, "past")}
     </div>
     <div class="rain">
-      <span>Krituliai šiemet: <b>${now.rain===null?"–":now.rain.toFixed(1)+" mm"}</b></span>
-      <span>pernai: <b>${past.rain===null?"–":past.rain.toFixed(1)+" mm"}</b></span>
+      <span>Krituliai ${rainNow}: <b>${now.rain===null?"–":now.rain.toFixed(1)+" mm"}</b></span>
+      <span>${rainPast}: <b>${past.rain===null?"–":past.rain.toFixed(1)+" mm"}</b></span>
     </div>
   </div>`;
 }
 
 function labelFor(start, end){
-  const f = d => d.toLocaleDateString("lt-LT",{month:"2-digit",day:"2-digit"});
-  return period==="day" ? f(end) : `${f(start)} – ${f(end)}`;
+  return period==="day" ? fShort(end) : `${fShort(start)} – ${fShort(end)}`;
+}
+
+function setLegend(a, b){
+  document.getElementById("legNow").textContent = a;
+  document.getElementById("legPast").textContent = b;
 }
 
 async function render(){
+  const seq = ++renderSeq;
   const statusEl = document.getElementById("status");
   const box = document.getElementById("cities");
   statusEl.style.display = "block";
   statusEl.textContent = "Kraunami duomenys…";
   box.innerHTML = "";
 
-  const today = new Date();
-  const n = periodDays();
-  const start = shift(today, -(n-1));
-  const pStart = lastYear(start), pEnd = lastYear(today);
-  document.getElementById("dateLabel").textContent = labelFor(start, today);
-
   try{
-    const html = await Promise.all(CITIES.map(async c => {
-      const [nowData, pastData] = await Promise.all([
-        fetchNow(c),
-        fetchPast(c, shift(pStart,-2), shift(pEnd,2))
-      ]);
-      const now  = stats(slicePeriod(nowData, start, today));
-      const past = stats(slicePeriod(pastData, pStart, pEnd));
-      return cityCard(c, now, past);
-    }));
+    let html;
+    if(period === "custom"){
+      const dA = parseDate(document.getElementById("dateA").value);
+      const dB = parseDate(document.getElementById("dateB").value);
+      const lA = fShort(dA), lB = fShort(dB);
+      document.getElementById("dateLabel").textContent = `${lA} vs ${lB}`;
+      setLegend(lA, lB);
+      html = await Promise.all(CITIES.map(async c => {
+        const [aData, bData] = await Promise.all([fetchDay(c, dA), fetchDay(c, dB)]);
+        const a = stats(slicePeriod(aData, dA, dA));
+        const b = stats(slicePeriod(bData, dB, dB));
+        return cityCard(c, a, b, lA, lB, lA, lB);
+      }));
+    }else{
+      const today = new Date();
+      const n = periodDays();
+      const start = shift(today, -(n-1));
+      const pStart = lastYear(start), pEnd = lastYear(today);
+      document.getElementById("dateLabel").textContent = labelFor(start, today);
+      setLegend("Šiemet", "Pernai");
+      html = await Promise.all(CITIES.map(async c => {
+        const [nowData, pastData] = await Promise.all([
+          fetchNow(c),
+          fetchPast(c, shift(pStart,-2), shift(pEnd,2))
+        ]);
+        const now  = stats(slicePeriod(nowData, start, today));
+        const past = stats(slicePeriod(pastData, pStart, pEnd));
+        return cityCard(c, now, past, "Šiemet", "Pernai", "šiemet", "pernai");
+      }));
+    }
+    if(seq !== renderSeq) return;
     box.innerHTML = html.join("");
     statusEl.style.display = "none";
   }catch(e){
+    if(seq !== renderSeq) return;
     statusEl.textContent = "Nepavyko gauti duomenų. Patikrink interneto ryšį ir bandyk dar kartą.\n(" + e.message + ")";
   }
 }
+
+const dateA = document.getElementById("dateA");
+const dateB = document.getElementById("dateB");
+{
+  const today = new Date();
+  dateA.value = fmtDate(today);
+  dateB.value = fmtDate(lastYear(today));
+  dateA.max = dateB.max = fmtDate(shift(today, 15));
+  dateA.min = dateB.min = "1940-01-01";
+}
+[dateA, dateB].forEach(el => el.addEventListener("change", () => {
+  if(el.value && period === "custom") render();
+}));
 
 document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button");
   if(!b) return;
   period = b.dataset.p;
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x===b));
+  document.getElementById("pick").classList.toggle("show", period==="custom");
   render();
 });
 
