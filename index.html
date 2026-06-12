@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#10212e">
+<title>Orai: dabar vs pernai</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🌤</text></svg>">
+<style>
+:root{
+  --bg:#10212e;
+  --panel:#1a3142;
+  --panel2:#16293a;
+  --line:#2a465c;
+  --text:#e8f1f7;
+  --muted:#8fa9bb;
+  --now:#ffc94d;
+  --past:#6db3e8;
+  --warm:#ff8a5c;
+  --cold:#7ec8f0;
+  --rain:#5fa8d3;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
+  min-height:100vh;
+  max-width:560px;margin:0 auto;
+  padding:max(12px,env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));
+}
+header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
+#dateLabel{font-size:.78rem;color:var(--muted)}
+.tabs{
+  display:flex;gap:6px;margin-bottom:12px;
+  background:var(--panel2);border-radius:12px;padding:4px;
+}
+.tabs button{
+  flex:1;border:0;border-radius:9px;padding:9px 0;
+  background:transparent;color:var(--muted);
+  font-size:.88rem;font-weight:600;cursor:pointer;
+}
+.tabs button.active{background:var(--now);color:#21303d}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+select,input[type="date"],input[type="search"]{
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:9px;padding:8px 10px;font-size:.85rem;font-family:inherit;
+  color-scheme:dark;
+}
+#customDates{display:flex;gap:8px;flex-wrap:wrap}
+#customDates label{display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--muted);font-weight:600}
+#customDates .dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+.legend{display:flex;gap:16px;font-size:.74rem;color:var(--muted);margin:0 2px 10px}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}
+.legend .l-now::before{background:var(--now)}
+.legend .l-past::before{background:var(--past)}
+.city{
+  background:var(--panel);border:1px solid var(--line);
+  border-radius:16px;padding:14px 14px 12px;margin-bottom:12px;
+}
+.city h2{font-size:1rem;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.city h2 .right{display:flex;align-items:center;gap:6px}
+.delta{font-size:.85rem;font-weight:700;padding:3px 9px;border-radius:99px}
+.delta.warmer{background:rgba(255,138,92,.18);color:var(--warm)}
+.delta.colder{background:rgba(126,200,240,.15);color:var(--cold)}
+.delta.same{background:rgba(143,169,187,.15);color:var(--muted)}
+.rm{border:0;background:transparent;color:var(--muted);font-size:1.05rem;line-height:1;cursor:pointer;padding:3px 6px;border-radius:7px}
+.rm:hover{color:var(--warm);background:var(--panel2)}
+.rows{display:grid;gap:8px}
+.row{display:grid;grid-template-columns:58px 1fr 88px;align-items:center;gap:10px;font-size:.85rem}
+.row .tag{color:var(--muted);font-size:.74rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:9px;border-radius:5px;position:relative;background:var(--panel2);overflow:hidden}
+.bar i{position:absolute;top:0;bottom:0;border-radius:5px}
+.bar.now i{background:var(--now)}
+.bar.past i{background:var(--past)}
+.row .val{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.row .val small{color:var(--muted);font-size:.72rem}
+.chart{display:block;width:100%;height:52px;margin-top:10px;background:var(--panel2);border-radius:8px}
+.chart-cap{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);margin-top:3px;padding:0 2px}
+.rain{display:flex;justify-content:space-between;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:.76rem;color:var(--muted)}
+.rain b{color:var(--rain);font-weight:600}
+.cityerr{color:var(--muted);font-size:.82rem;line-height:1.4}
+#status{text-align:center;color:var(--muted);font-size:.85rem;padding:30px 10px;line-height:1.5}
+.addcity{display:flex;gap:8px;margin-top:6px}
+.addcity input{flex:1;min-width:0}
+.addcity button{
+  border:0;border-radius:9px;padding:8px 14px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  font-size:.85rem;font-weight:600;
+}
+#cityResults{margin-top:8px;display:grid;gap:6px}
+#cityResults button{
+  display:block;width:100%;text-align:left;cursor:pointer;
+  background:var(--panel);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:9px 12px;font-size:.85rem;
+}
+#cityResults button small{color:var(--muted)}
+#cityResults button:hover{border-color:var(--now)}
+footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opacity:.7}
+@media (prefers-reduced-motion:no-preference){
+  .bar i{transition:width .5s ease}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌤 Dabar vs pernai</h1>
+  <span id="dateLabel"></span>
+</header>
+
+<div class="tabs" id="tabs">
+  <button data-p="day" class="active">Diena</button>
+  <button data-p="week">Savaitė</button>
+  <button data-p="month">Mėnuo</button>
+</div>
+
+<div class="controls">
+  <select id="mode">
+    <option value="lastyear">Lyginti su pernai</option>
+    <option value="avg5">Lyginti su 5 m. vidurkiu</option>
+    <option value="custom">Pasirinkti datas</option>
+  </select>
+  <div id="customDates" hidden>
+    <label><span class="dot" style="background:var(--now)"></span><input type="date" id="dateA"></label>
+    <label><span class="dot" style="background:var(--past)"></span><input type="date" id="dateB"></label>
+  </div>
+</div>
+
+<div class="legend">
+  <span class="l-now" id="legendNow">Šiemet</span>
+  <span class="l-past" id="legendPast">Pernai</span>
+</div>
+
+<div id="status">Kraunami duomenys…</div>
+<div id="cities"></div>
+
+<div class="addcity">
+  <input type="search" id="cityInput" placeholder="Pridėti miestą…" autocomplete="off">
+  <button id="citySearch">Ieškoti</button>
+</div>
+<div id="cityResults"></div>
+
+<footer>Duomenys: open-meteo.com · vidutinė paros temp. ir krituliai</footer>
+
+<script>
+const DEFAULT_CITIES = [
+  {name:"Vilnius",  lat:54.69, lon:25.28},
+  {name:"Klaipėda", lat:55.71, lon:21.13},
+  {name:"Šiauliai", lat:55.93, lon:23.31},
+  {name:"Ryga",     lat:56.95, lon:24.11},
+];
+const DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum";
+const AVG_YEARS = 5;
+const STORAGE_KEY = "orai.cities";
+
+let cities = loadCities();
+let period = "day";
+let mode = "lastyear";
+let dateA = null, dateB = null;
+const cache = {};
+
+function loadCities(){
+  try{
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if(Array.isArray(s) && s.length && s.every(c => c.name && isFinite(c.lat) && isFinite(c.lon))) return s;
+  }catch(e){}
+  return DEFAULT_CITIES.slice();
+}
+function saveCities(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(cities)); }catch(e){}
+}
+
+function esc(s){ return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+// Vietinė data (toISOString naudoja UTC ir po vidurnakčio rodytų ne tą dieną)
+function fmtDate(d){
+  const p = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function parseDate(s){ const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); }
+function shift(d, days){ const n = new Date(d); n.setDate(n.getDate()+days); return n; }
+function yearsAgo(d, k){ const n = new Date(d); n.setFullYear(n.getFullYear()-k); return n; }
+function shortDate(d){ return d.toLocaleDateString("lt-LT",{month:"2-digit",day:"2-digit"}); }
+
+function periodDays(){ return period==="day" ? 1 : period==="week" ? 7 : 30; }
+
+function avg(arr){
+  const v = arr.filter(x => x!==null && x!==undefined && !Number.isNaN(x));
+  if(!v.length) return null;
+  return v.reduce((a,b)=>a+b,0)/v.length;
+}
+function sum(arr){
+  const v = arr.filter(x => x!==null && x!==undefined && !Number.isNaN(x));
+  if(!v.length) return null;
+  return v.reduce((a,b)=>a+b,0);
+}
+
+async function getJSON(url){
+  if(cache[url]) return cache[url];
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("API klaida " + r.status);
+  const j = await r.json();
+  cache[url] = j;
+  return j;
+}
+
+function slicePeriod(data, start, end){
+  const t = data.daily.time;
+  const out = {tmax:[], tmin:[], rain:[]};
+  const s = fmtDate(start), e = fmtDate(end);
+  for(let i=0;i<t.length;i++){
+    if(t[i] >= s && t[i] <= e){
+      out.tmax.push(data.daily.temperature_2m_max[i]);
+      out.tmin.push(data.daily.temperature_2m_min[i]);
+      out.rain.push(data.daily.precipitation_sum[i]);
+    }
+  }
+  return out;
+}
+
+// Paskutinių ~3 mėn. duomenis duoda forecast API (archyvas vėluoja kelias dienas),
+// senesnius — archyvo API.
+async function fetchRange(c, start, end){
+  const recentLimit = shift(new Date(), -85);
+  let url;
+  if(fmtDate(start) >= fmtDate(recentLimit)){
+    url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
+      + `&daily=${DAILY}&past_days=92&forecast_days=1&timezone=auto`;
+  }else{
+    url = `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
+      + `&start_date=${fmtDate(shift(start,-1))}&end_date=${fmtDate(end)}&daily=${DAILY}&timezone=auto`;
+  }
+  return slicePeriod(await getJSON(url), start, end);
+}
+
+// Vienas archyvo užklausimas, apimantis visų AVG_YEARS metų langus
+async function fetchAvgWindows(c, start, end){
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
+    + `&start_date=${fmtDate(shift(yearsAgo(start,AVG_YEARS),-1))}&end_date=${fmtDate(yearsAgo(end,1))}`
+    + `&daily=${DAILY}&timezone=auto`;
+  const data = await getJSON(url);
+  const wins = [];
+  for(let k=1;k<=AVG_YEARS;k++) wins.push(slicePeriod(data, yearsAgo(start,k), yearsAgo(end,k)));
+  return wins;
+}
+
+function stats(sl){
+  const tmax = avg(sl.tmax), tmin = avg(sl.tmin);
+  return {
+    tavg: (tmax!==null && tmin!==null) ? (tmax+tmin)/2 : null,
+    tmax, tmin,
+    rain: sum(sl.rain)
+  };
+}
+// Vidutinė paros temperatūra kiekvienai dienai (grafikui)
+function means(sl){
+  return sl.tmax.map((x,i) =>
+    (x!==null && x!==undefined && sl.tmin[i]!==null && sl.tmin[i]!==undefined) ? (x+sl.tmin[i])/2 : null
+  );
+}
+
+function avgStats(list){
+  const f = k => avg(list.map(s => s[k]));
+  return {tavg:f("tavg"), tmax:f("tmax"), tmin:f("tmin"), rain:f("rain")};
+}
+function avgSeries(list){
+  const len = Math.max(...list.map(a => a.length), 0);
+  const out = [];
+  for(let i=0;i<len;i++) out.push(avg(list.map(a => a[i])));
+  return out;
+}
+
+function barWidth(t, min, max){
+  if(t===null) return 0;
+  const range = Math.max(max-min, 1);
+  return Math.max(6, Math.round((t-min)/range*100));
+}
+
+function deg(t){ return t===null ? "–" : t.toFixed(1)+"°"; }
+function mm(v){ return v===null ? "–" : v.toFixed(1)+" mm"; }
+
+function chartSVG(serA, serB){
+  const all = [...serA, ...serB].filter(v => v!==null && v!==undefined);
+  const enough = a => a.filter(v => v!==null && v!==undefined).length >= 2;
+  if(!all.length || (!enough(serA) && !enough(serB))) return "";
+  const min = Math.min(...all), max = Math.max(...all);
+  const range = Math.max(max-min, 1);
+  const W = 100, H = 32, P = 3;
+  const line = (arr, color) => {
+    if(!enough(arr)) return "";
+    const n = Math.max(arr.length-1, 1);
+    const pts = arr.map((v,i) => v===null || v===undefined ? null
+      : `${(P + i/n*(W-2*P)).toFixed(2)},${(H-P - (v-min)/range*(H-2*P)).toFixed(2)}`
+    ).filter(Boolean).join(" ");
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  };
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${line(serB, "var(--past)")}${line(serA, "var(--now)")}
+    </svg>
+    <div class="chart-cap"><span>${min.toFixed(0)}°…${max.toFixed(0)}°</span><span>paros vidurkis</span></div>`;
+}
+
+function cityCard(c, i, now, past, serA, serB, tagA, tagB){
+  const scaleMin = Math.min(now.tmin??99, past.tmin??99, 0);
+  const scaleMax = Math.max(now.tmax??-99, past.tmax??-99, 5);
+
+  let deltaHTML = "";
+  if(now.tavg!==null && past.tavg!==null){
+    const d = now.tavg - past.tavg;
+    const cls = d > 0.5 ? "warmer" : d < -0.5 ? "colder" : "same";
+    const sign = d > 0 ? "+" : "";
+    deltaHTML = `<span class="delta ${cls}">${sign}${d.toFixed(1)}°</span>`;
+  }
+
+  const row = (tag, st, cls) => `
+    <div class="row">
+      <span class="tag">${esc(tag)}</span>
+      <div class="bar ${cls}"><i style="width:${barWidth(st.tavg, scaleMin, scaleMax)}%"></i></div>
+      <span class="val">${deg(st.tavg)} <small>${deg(st.tmin)}/${deg(st.tmax)}</small></span>
+    </div>`;
+
+  return `<div class="city">
+    <h2>${esc(c.name)}
+      <span class="right">${deltaHTML}<button class="rm" data-i="${i}" title="Pašalinti miestą" aria-label="Pašalinti ${esc(c.name)}">✕</button></span>
+    </h2>
+    <div class="rows">
+      ${row(tagA, now, "now")}
+      ${row(tagB, past, "past")}
+    </div>
+    ${chartSVG(serA, serB)}
+    <div class="rain">
+      <span>Krituliai ${esc(tagA.toLowerCase())}: <b>${mm(now.rain)}</b></span>
+      <span>${esc(tagB.toLowerCase())}: <b>${mm(past.rain)}</b></span>
+    </div>
+  </div>`;
+}
+
+function errorCard(c, i, msg){
+  return `<div class="city">
+    <h2>${esc(c.name)}
+      <span class="right"><button class="rm" data-i="${i}" title="Pašalinti miestą">✕</button></span>
+    </h2>
+    <div class="cityerr">Nepavyko gauti duomenų (${esc(msg)})</div>
+  </div>`;
+}
+
+function labelFor(start, end){
+  return period==="day" ? shortDate(end) : `${shortDate(start)} – ${shortDate(end)}`;
+}
+
+async function render(){
+  const statusEl = document.getElementById("status");
+  const box = document.getElementById("cities");
+  statusEl.style.display = "block";
+  statusEl.textContent = "Kraunami duomenys…";
+  box.innerHTML = "";
+
+  const n = periodDays();
+  const endA = (mode==="custom" && dateA) ? dateA : new Date();
+  const startA = shift(endA, -(n-1));
+
+  let endB = null, startB = null, tagA, tagB;
+  if(mode==="avg5"){
+    tagA = "Šiemet";
+    tagB = `${AVG_YEARS} m. vid.`;
+  }else{
+    endB = (mode==="custom" && dateB) ? dateB : yearsAgo(endA, 1);
+    startB = shift(endB, -(n-1));
+    tagA = mode==="custom" ? shortDate(endA) : "Šiemet";
+    tagB = mode==="custom" ? shortDate(endB) : "Pernai";
+  }
+  document.getElementById("dateLabel").textContent = labelFor(startA, endA);
+  document.getElementById("legendNow").textContent = tagA;
+  document.getElementById("legendPast").textContent = tagB;
+
+  if(!cities.length){
+    statusEl.textContent = "Sąrašas tuščias – pridėkite miestą žemiau.";
+    return;
+  }
+
+  const cards = await Promise.all(cities.map(async (c, i) => {
+    try{
+      const slA = await fetchRange(c, startA, endA);
+      let stB, serB;
+      if(mode==="avg5"){
+        const wins = await fetchAvgWindows(c, startA, endA);
+        stB = avgStats(wins.map(stats));
+        serB = avgSeries(wins.map(means));
+      }else{
+        const slB = await fetchRange(c, startB, endB);
+        stB = stats(slB);
+        serB = means(slB);
+      }
+      return cityCard(c, i, stats(slA), stB, means(slA), serB, tagA, tagB);
+    }catch(e){
+      return errorCard(c, i, e.message);
+    }
+  }));
+  box.innerHTML = cards.join("");
+  statusEl.style.display = "none";
+}
+
+// --- Valdikliai ---
+
+document.getElementById("tabs").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b) return;
+  period = b.dataset.p;
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x===b));
+  render();
+});
+
+const modeEl = document.getElementById("mode");
+const customBox = document.getElementById("customDates");
+const dateAEl = document.getElementById("dateA");
+const dateBEl = document.getElementById("dateB");
+
+const today = new Date();
+dateAEl.max = dateBEl.max = fmtDate(today);
+dateAEl.value = fmtDate(today);
+dateBEl.value = fmtDate(yearsAgo(today, 1));
+dateA = parseDate(dateAEl.value);
+dateB = parseDate(dateBEl.value);
+
+modeEl.addEventListener("change", () => {
+  mode = modeEl.value;
+  customBox.hidden = mode !== "custom";
+  render();
+});
+dateAEl.addEventListener("change", () => {
+  if(!dateAEl.value) return;
+  dateA = parseDate(dateAEl.value);
+  render();
+});
+dateBEl.addEventListener("change", () => {
+  if(!dateBEl.value) return;
+  dateB = parseDate(dateBEl.value);
+  render();
+});
+
+document.getElementById("cities").addEventListener("click", e => {
+  const b = e.target.closest(".rm");
+  if(!b) return;
+  cities.splice(Number(b.dataset.i), 1);
+  saveCities();
+  render();
+});
+
+// --- Miestų paieška (open-meteo geokodavimas) ---
+
+const cityInput = document.getElementById("cityInput");
+const cityResults = document.getElementById("cityResults");
+
+async function searchCity(){
+  const q = cityInput.value.trim();
+  if(q.length < 2) return;
+  cityResults.innerHTML = `<div class="cityerr">Ieškoma…</div>`;
+  try{
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=lt&format=json`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error("API klaida " + r.status);
+    const j = await r.json();
+    const res = j.results || [];
+    if(!res.length){
+      cityResults.innerHTML = `<div class="cityerr">Nieko nerasta.</div>`;
+      return;
+    }
+    cityResults.innerHTML = res.map((p, i) => {
+      const extra = [p.admin1, p.country].filter(Boolean).join(", ");
+      return `<button data-i="${i}">${esc(p.name)} <small>${esc(extra)}</small></button>`;
+    }).join("");
+    cityResults.onclick = e => {
+      const b = e.target.closest("button");
+      if(!b) return;
+      const p = res[Number(b.dataset.i)];
+      if(!cities.some(c => c.name===p.name && Math.abs(c.lat-p.latitude)<0.01 && Math.abs(c.lon-p.longitude)<0.01)){
+        cities.push({name:p.name, lat:+p.latitude.toFixed(2), lon:+p.longitude.toFixed(2)});
+        saveCities();
+      }
+      cityResults.innerHTML = "";
+      cityInput.value = "";
+      render();
+    };
+  }catch(e){
+    cityResults.innerHTML = `<div class="cityerr">Paieška nepavyko (${esc(e.message)})</div>`;
+  }
+}
+
+document.getElementById("citySearch").addEventListener("click", searchCity);
+cityInput.addEventListener("keydown", e => { if(e.key==="Enter") searchCity(); });
+
+render();
+</script>
+</body>
+</html>
