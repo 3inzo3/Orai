@@ -31,9 +31,17 @@ body{
   min-height:100vh;
   padding:max(12px,env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));
 }
-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
+#updated{display:block;font-size:.68rem;color:var(--muted);margin-top:2px}
+.hright{display:flex;align-items:center;gap:10px}
 #dateLabel{font-size:.78rem;color:var(--muted)}
+#refresh{
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:9px;width:34px;height:34px;font-size:1.05rem;cursor:pointer;line-height:1;
+}
+#refresh.loading{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .tabs{
   display:flex;gap:5px;margin-bottom:16px;
   background:var(--panel2);border-radius:12px;padding:4px;
@@ -140,8 +148,14 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 </head>
 <body>
 <header>
-  <h1>🌤 Dabar vs pernai</h1>
-  <span id="dateLabel"></span>
+  <div>
+    <h1>🌤 Dabar vs pernai</h1>
+    <span id="updated"></span>
+  </div>
+  <div class="hright">
+    <span id="dateLabel"></span>
+    <button id="refresh" aria-label="Atnaujinti duomenis">⟳</button>
+  </div>
 </header>
 
 <div class="tabs" id="tabs">
@@ -219,8 +233,19 @@ let subMode = "single";   // „Data" tabo režimas: viena diena ar laikotarpis
 let rangeCmp = "w1";      // su kuo lyginti laikotarpį
 let calYear = new Date().getFullYear();
 let renderSeq = 0;
+let lastFetch = 0;
 const cache = {};
 const dayCache = {};
+
+function clearData(){
+  for(const k in cache) delete cache[k];
+  for(const k in dayCache) delete dayCache[k];
+}
+function markUpdated(){
+  lastFetch = Date.now();
+  document.getElementById("updated").textContent =
+    "atnaujinta " + new Date().toLocaleTimeString("lt-LT",{hour:"2-digit",minute:"2-digit"});
+}
 
 /* ---------- Datos pagalbinės ---------- */
 // Lokali data YYYY-MM-DD (toISOString naktį nuslinktų į vakar dieną dėl UTC)
@@ -709,6 +734,7 @@ async function render(){
     if(seq !== renderSeq) return;
     box.innerHTML = html.join("");
     statusEl.style.display = "none";
+    markUpdated();
   }catch(e){
     if(seq !== renderSeq) return;
     statusEl.textContent = "Nepavyko gauti duomenų. Patikrink interneto ryšį ir bandyk dar kartą.\n(" + e.message + ")";
@@ -810,6 +836,30 @@ document.getElementById("tabs").addEventListener("click", e => {
   period = b.dataset.p;
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x===b));
   render();
+});
+
+// Rankinis atnaujinimas — išvalom kešą, kad duomenys būtų tikrai švieži
+const refreshBtn = document.getElementById("refresh");
+refreshBtn.addEventListener("click", async () => {
+  refreshBtn.classList.add("loading");
+  clearData();
+  await render();
+  refreshBtn.classList.remove("loading");
+});
+
+// Grįžus į pirmą planą (iOS „Add to Home Screen" užšaldo paskutinį vaizdą)
+// atnaujinam, jei duomenys senesni nei 30 min
+function freshen(){
+  if(Date.now() - lastFetch > 30*60*1000){
+    clearData();
+    render();
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible") freshen();
+});
+window.addEventListener("pageshow", e => {
+  if(e.persisted) freshen();   // Safari bfcache
 });
 
 render();
