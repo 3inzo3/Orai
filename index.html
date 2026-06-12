@@ -48,9 +48,9 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   background:var(--panel2);border-radius:12px;padding:4px;
 }
 .tabs button{
-  flex:1;border:0;border-radius:9px;padding:9px 0;
+  flex:1 1 auto;border:0;border-radius:9px;padding:9px 7px;
   background:transparent;color:var(--muted);
-  font-size:.8rem;font-weight:600;cursor:pointer;
+  font-size:.78rem;font-weight:600;cursor:pointer;
 }
 .tabs button.active{background:var(--now);color:#21303d}
 .pick{display:none;flex-direction:column;gap:9px;margin:-6px 0 14px}
@@ -127,7 +127,6 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .chart .ln-past{stroke:var(--past)}
 #hint{font-size:.7rem;color:var(--muted);margin:-4px 2px 10px;opacity:.8}
 #status{text-align:center;color:var(--muted);font-size:.85rem;padding:30px 10px;line-height:1.5}
-footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opacity:.7}
 /* Kalendorius */
 .calnav{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:12px}
 .calnav button{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;width:36px;height:36px;font-size:1.15rem;cursor:pointer;line-height:1}
@@ -182,7 +181,7 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
   <button data-p="week">Savaitė</button>
   <button data-p="month">Mėnuo</button>
   <button data-p="custom">Data</button>
-  <button data-p="year">Metai</button>
+  <button data-p="year">Kalendorius</button>
 </div>
 
 <div class="pick" id="pick">
@@ -233,8 +232,6 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 
 <div id="status">Kraunami duomenys…</div>
 <div id="cities"></div>
-
-<footer>Duomenys: open-meteo.com · stebėjimai, archyvas nuo 1940 m., prognozė</footer>
 
 <script>
 const CITIES = [
@@ -317,13 +314,25 @@ function sum(arr){
 }
 
 /* ---------- Užklausos ---------- */
+// Kešuojamas pažadas, ne rezultatas — lygiagrečios užklausos tuo pačiu URL
+// susijungia į vieną; nepavykusi šalinama, kad ⟳ galėtų bandyti iš naujo
 async function getJSON(url){
-  if(cache[url]) return cache[url];
-  const r = await fetch(url);
-  if(!r.ok) throw new Error("API klaida " + r.status);
-  const j = await r.json();
-  cache[url] = j;
-  return j;
+  if(!cache[url]){
+    cache[url] = (async () => {
+      const r = await fetch(url);
+      if(!r.ok) throw new Error("API klaida " + r.status);
+      return r.json();
+    })();
+  }
+  try{ return await cache[url]; }
+  catch(e){ delete cache[url]; throw e; }
+}
+// 429 = Open-Meteo minutės limitas; pasakom žmogiškai
+function errText(e){
+  const m = String(e && e.message || e);
+  return m.includes("429")
+    ? "Per daug užklausų — palauk minutę ir spausk ⟳"
+    : "Nepavyko užkrauti (" + m + ")";
 }
 
 // Pastarosios ~3 mėn. ir prognozė: paros suvestinės IR valandiniai vienoje
@@ -769,6 +778,16 @@ function setLegend(a, b){
   document.getElementById("legNow").textContent = a;
   document.getElementById("legPast").textContent = b;
 }
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+function fDow(d){ return d.toLocaleDateString("lt-LT", {weekday:"short"}); }
+// Miestai kraunami nepriklausomai: nepavykusiam rodoma klaida jo kortelėje,
+// kiti rodomi normaliai; jei nepavyko visi — bendras pranešimas
+async function renderCities(buildCard){
+  const results = await Promise.allSettled(CITIES.map(buildCard));
+  if(!results.some(r => r.status === "fulfilled")) throw results[0].reason;
+  return results.map((r, i) => r.status === "fulfilled" ? r.value
+    : `<div class="city"><h2>${CITIES[i].name}</h2><div class="nochart">${errText(r.reason)}</div></div>`);
+}
 
 async function render(){
   const seq = ++renderSeq;
@@ -799,21 +818,23 @@ async function render(){
         dB = parseDate(document.getElementById("dateB").value);
         lA = rA = fShortY(dA);            // 26-06-12 — su metais, bet telpa stulpelyje
         lB = rB = fShortY(dB);
-        document.getElementById("dateLabel").textContent = `${fmtDate(dA)} vs ${fmtDate(dB)}`;
+        document.getElementById("dateLabel").textContent = "";
+        setLegend(`${fmtDate(dA)} (${fDow(dA)})`, `${fmtDate(dB)} (${fDow(dB)})`);
       }else{
         // Šiandien vs ta pati savaitės diena pernai (penktadienis su penktadieniu)
         dA = today0(); dB = isoAlign(dA);
         lA = "Šiemet"; lB = "Pernai"; rA = "šiemet"; rB = "pernai";
-        document.getElementById("dateLabel").textContent = `${fShort(dA)} vs ${fShort(dB)} (pernai)`;
+        document.getElementById("dateLabel").textContent =
+          cap(dA.toLocaleDateString("lt-LT", {weekday:"long"}));
+        setLegend(`Šiemet · ${fDow(dA)} ${fShort(dA)}`, `Pernai · ${fDow(dB)} ${fShort(dB)}`);
       }
       chartDays = {dA, dB};
-      setLegend(lA, lB);
-      html = await Promise.all(CITIES.map(async (c, i) => {
+      html = await renderCities(async (c, i) => {
         const [ha, hb] = await Promise.all([getDayHours(c, dA), getDayHours(c, dB)]);
         return cityCard(c, i, statsFromHours(ha), statsFromHours(hb),
           {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:1, tappable:true,
            cNow:comfortIndex(ha.day), cPast:comfortIndex(hb.day)});
-      }));
+      });
     }else{
       // Daugiadieniai laikotarpiai: A (šis) ir B (lyginamasis)
       let s, e2, bs, lA, lB, rA = "", rB = "";
@@ -844,19 +865,19 @@ async function render(){
         setLegend(`${fmtDate(s)} – ${fmtDate(e2)}`, `${fmtDate(bs)} – ${fmtDate(be)}`);
       }else{
         lA = "Šiemet"; lB = "Pernai"; rA = "šiemet"; rB = "pernai";
-        const wk = period==="week" ? `${isoWeek(e2)} sav.: ` : "";
-        document.getElementById("dateLabel").textContent =
-          `${wk}${fShort(s)} – ${fShort(e2)} vs ${fShort(bs)} – ${fShort(be)}`;
-        setLegend("Šiemet", "Pernai");
+        document.getElementById("dateLabel").textContent = period === "week"
+          ? `${isoWeek(e2)} savaitė`
+          : `${cap(e2.toLocaleDateString("lt-LT", {month:"long"}))}, 1–${e2.getDate()} d.`;
+        setLegend(`Šiemet · ${fShort(s)} – ${fShort(e2)}`, `Pernai · ${fShort(bs)} – ${fShort(be)}`);
       }
-      html = await Promise.all(CITIES.map(async (c, i) => {
+      html = await renderCities(async (c, i) => {
         const [da, db] = await Promise.all([rangeDaily(c, s, e2), rangeDaily(c, bs, be)]);
         const daysA = sliceDays(da, s, e2), daysB = sliceDays(db, bs, be);
         const o = {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:len+1, tappable:false,
           cNow:comfortForDays(daysA), cPast:comfortForDays(daysB)};
         if(period === "month") o.badHTML = badDaysHTML(daysA, daysB);
         return cityCard(c, i, stats(daysA), stats(daysB), o);
-      }));
+      });
     }
     if(seq !== renderSeq) return;
     box.innerHTML = html.join("");
@@ -864,7 +885,9 @@ async function render(){
     markUpdated();
   }catch(e){
     if(seq !== renderSeq) return;
-    statusEl.textContent = "Nepavyko gauti duomenų. Patikrink interneto ryšį ir bandyk dar kartą.\n(" + e.message + ")";
+    statusEl.textContent = String(e && e.message || e).includes("429")
+      ? "Orų serveris laikinai pristabdė užklausas (per daug per minutę). Palauk minutę ir paspausk ⟳."
+      : "Nepavyko gauti duomenų. Patikrink interneto ryšį ir bandyk dar kartą.\n(" + e.message + ")";
   }
 }
 
