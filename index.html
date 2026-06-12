@@ -122,9 +122,11 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 .callegend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}
 .cl-lt::before{background:var(--now)}
 .cl-lv::before{background:var(--past)}
-.calgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px}
+.calgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .month{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
 .month h3{font-size:.8rem;font-weight:700;text-transform:capitalize;margin-bottom:6px;text-align:center}
+.month h3 .yp{color:var(--past)}
+.month h3 .yc{color:var(--now)}
 .month table{width:100%;border-collapse:collapse;font-size:.64rem;text-align:center;font-variant-numeric:tabular-nums}
 .month th{color:var(--muted);font-weight:600;padding:2px 0;font-size:.58rem}
 .month td{padding:3px 0;border-radius:5px}
@@ -552,7 +554,7 @@ function holidayList(y){
   return L;
 }
 
-function monthHTML(y, m, map){
+function monthHTML(y, m, map, cur){
   const last = new Date(y, m+1, 0);
   const name = new Date(y, m, 1).toLocaleDateString("lt-LT", {month:"long"});
   const todayKey = fmtDate(new Date());
@@ -575,7 +577,7 @@ function monthHTML(y, m, map){
   const pre = `${y}-${String(m+1).padStart(2,"0")}`;
   const list = Object.keys(map).filter(k=>k.startsWith(pre)).sort()
     .map(k => map[k].map(h=>`<div><b>${+k.slice(8)} d.</b> ${h.name} · ${h.who}</div>`).join("")).join("");
-  return `<div class="month"><h3>${name}</h3>
+  return `<div class="month"><h3>${name} <span class="${cur?"yc":"yp"}">${y}</span></h3>
     <table>
       <tr><th class="wk">sav.</th><th>Pr</th><th>An</th><th>Tr</th><th>Kt</th><th>Pn</th><th>Št</th><th>Sk</th></tr>
       ${rows}
@@ -583,12 +585,22 @@ function monthHTML(y, m, map){
     ${list ? `<div class="mh">${list}</div>` : ""}</div>`;
 }
 
+// Du metai greta: kairėje pernai (mėlyna), dešinėje šiemet (geltona),
+// mėnuo prie mėnesio — sausis 2025 šalia sausio 2026
 function calendarHTML(y){
-  const map = {};
-  holidayList(y).forEach(h => { (map[h.k] = map[h.k]||[]).push(h); });
-  const months = Array.from({length:12}, (_,m) => monthHTML(y, m, map)).join("");
+  const mkMap = yy => {
+    const m = {};
+    holidayList(yy).forEach(h => { (m[h.k] = m[h.k]||[]).push(h); });
+    return m;
+  };
+  const mapPrev = mkMap(y-1), mapCur = mkMap(y);
+  let months = "";
+  for(let m=0; m<12; m++){
+    months += monthHTML(y-1, m, mapPrev, false) + monthHTML(y, m, mapCur, true);
+  }
   return `<div class="calnav">
-      <button id="cprev" aria-label="Ankstesni metai">‹</button><b>${y}</b>
+      <button id="cprev" aria-label="Ankstesni metai">‹</button>
+      <b>${y-1} vs ${y}</b>
       <button id="cnext" aria-label="Kiti metai">›</button>
     </div>
     <div class="callegend"><span class="cl-lt">LT šventė</span><span class="cl-lv">LV šventė</span></div>
