@@ -76,6 +76,17 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .row .val small{color:var(--muted);font-size:.72rem}
 .rain{display:flex;justify-content:space-between;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:.76rem;color:var(--muted)}
 .rain b{color:var(--rain);font-weight:600}
+.city.tappable{cursor:pointer}
+.chartBox{margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+.nochart{text-align:center;color:var(--muted);font-size:.78rem;padding:14px 0}
+.chart{width:100%;height:auto;display:block}
+.chart line{stroke:var(--line);stroke-width:1}
+.chart text{fill:var(--muted);font-size:9px;text-anchor:middle}
+.chart text.yl{text-anchor:start}
+.chart path{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.chart .ln-now{stroke:var(--now)}
+.chart .ln-past{stroke:var(--past)}
+#hint{font-size:.7rem;color:var(--muted);margin:-4px 2px 10px;opacity:.8}
 #status{text-align:center;color:var(--muted);font-size:.85rem;padding:30px 10px;line-height:1.5}
 footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opacity:.7}
 @media (prefers-reduced-motion:no-preference){
@@ -109,6 +120,8 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
   <span class="l-now" id="legNow">Šiemet</span>
   <span class="l-past" id="legPast">Pernai</span>
 </div>
+
+<div id="hint">Spustelėk miestą — valandų temperatūros grafikas</div>
 
 <div id="status">Kraunami duomenys…</div>
 <div id="cities"></div>
@@ -187,6 +200,78 @@ async function fetchDay(c, d){
   }
   return fetchPast(c, d, d);
 }
+// Vienos dienos valandų temperatūra (logika ta pati kaip fetchDay)
+async function fetchDayHourly(c, d){
+  const today = parseDate(fmtDate(new Date()));
+  const diff = Math.round((today - d)/86400000);
+  if(diff < -15) return null;
+  if(diff <= 88){
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
+      + `&hourly=temperature_2m&past_days=92&forecast_days=16&timezone=auto`;
+    return getJSON(url);
+  }
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
+    + `&start_date=${fmtDate(d)}&end_date=${fmtDate(d)}&hourly=temperature_2m&timezone=auto`;
+  return getJSON(url);
+}
+
+// 24 valandų masyvas pasirinktai dienai; šiandienai — tik iki paskutinės
+// sveikos valandos (pvz., 22:32 rodome iki 22:00)
+function sliceHours(data, d){
+  const out = Array(24).fill(null);
+  if(!data || !data.hourly) return out;
+  const pre = fmtDate(d) + "T";
+  data.hourly.time.forEach((t,i) => {
+    if(t.startsWith(pre)) out[+t.slice(11,13)] = data.hourly.temperature_2m[i];
+  });
+  const now = new Date();
+  if(fmtDate(d) === fmtDate(now)){
+    for(let h = now.getHours()+1; h < 24; h++) out[h] = null;
+  }
+  return out;
+}
+
+function pathFor(vals, x, y){
+  let p = "", started = false;
+  vals.forEach((v,h) => {
+    if(v===null || v===undefined){ started = false; return; }
+    p += (started ? "L" : "M") + x(h).toFixed(1) + " " + y(v).toFixed(1) + " ";
+    started = true;
+  });
+  return p;
+}
+
+function chartSVG(a, b){
+  const all = [...a, ...b].filter(v => v!==null && v!==undefined);
+  if(!all.length) return `<div class="nochart">Valandinių duomenų nėra</div>`;
+  let min = Math.min(...all), max = Math.max(...all);
+  if(max - min < 2){ const m = (max+min)/2; min = m-1; max = m+1; }
+  const W=340, H=150, L=30, R=10, T=12, B=20;
+  const x = h => L + (W-L-R)*h/23;
+  const y = t => T + (H-T-B)*(1-(t-min)/(max-min));
+  const grid = [0,6,12,18,23].map(h =>
+    `<line x1="${x(h)}" y1="${T}" x2="${x(h)}" y2="${H-B}"/>`
+    + `<text x="${x(h)}" y="${H-6}">${h} val.</text>`).join("");
+  const ylab = `<text class="yl" x="2" y="${(y(max)+4).toFixed(1)}">${Math.round(max)}°</text>`
+    + `<text class="yl" x="2" y="${(y(min)+4).toFixed(1)}">${Math.round(min)}°</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">
+    ${grid}${ylab}
+    <path class="ln-past" d="${pathFor(b,x,y)}"/>
+    <path class="ln-now" d="${pathFor(a,x,y)}"/>
+  </svg>`;
+}
+
+// Kurias dvi dienas rodyti grafike pagal aktyvų režimą
+function chartDates(){
+  if(period === "custom"){
+    return {
+      dA: parseDate(document.getElementById("dateA").value),
+      dB: parseDate(document.getElementById("dateB").value)
+    };
+  }
+  const t = parseDate(fmtDate(new Date()));
+  return {dA: t, dB: lastYear(t)};
+}
 
 function slicePeriod(data, start, end){
   const t = data.daily.time;
@@ -219,7 +304,7 @@ function barWidth(t, min, max){
 
 function deg(t){ return t===null ? "–" : t.toFixed(1)+"°"; }
 
-function cityCard(c, now, past, tagNow, tagPast, rainNow, rainPast){
+function cityCard(c, idx, now, past, tagNow, tagPast, rainNow, rainPast){
   let scaleMin = Math.min(now.tmin??99, past.tmin??99, 0);
   let scaleMax = Math.max(now.tmax??-99, past.tmax??-99, 5);
 
@@ -238,7 +323,8 @@ function cityCard(c, now, past, tagNow, tagPast, rainNow, rainPast){
       <span class="val">${deg(st.tavg)} <small>${deg(st.tmin)}/${deg(st.tmax)}</small></span>
     </div>`;
 
-  return `<div class="city">
+  const tappable = period==="day" || period==="custom";
+  return `<div class="city${tappable?" tappable":""}" data-i="${idx}">
     <h2>${c.name} ${deltaHTML}</h2>
     <div class="rows">
       ${row(tagNow, now, "now")}
@@ -248,6 +334,7 @@ function cityCard(c, now, past, tagNow, tagPast, rainNow, rainPast){
       <span>Krituliai ${rainNow}: <b>${now.rain===null?"–":now.rain.toFixed(1)+" mm"}</b></span>
       <span>${rainPast}: <b>${past.rain===null?"–":past.rain.toFixed(1)+" mm"}</b></span>
     </div>
+    ${tappable ? '<div class="chartBox" hidden></div>' : ""}
   </div>`;
 }
 
@@ -267,6 +354,8 @@ async function render(){
   statusEl.style.display = "block";
   statusEl.textContent = "Kraunami duomenys…";
   box.innerHTML = "";
+  document.getElementById("hint").style.display =
+    (period==="day" || period==="custom") ? "" : "none";
 
   try{
     let html;
@@ -276,11 +365,11 @@ async function render(){
       const lA = fShort(dA), lB = fShort(dB);
       document.getElementById("dateLabel").textContent = `${lA} vs ${lB}`;
       setLegend(lA, lB);
-      html = await Promise.all(CITIES.map(async c => {
+      html = await Promise.all(CITIES.map(async (c, i) => {
         const [aData, bData] = await Promise.all([fetchDay(c, dA), fetchDay(c, dB)]);
         const a = stats(slicePeriod(aData, dA, dA));
         const b = stats(slicePeriod(bData, dB, dB));
-        return cityCard(c, a, b, lA, lB, lA, lB);
+        return cityCard(c, i, a, b, lA, lB, lA, lB);
       }));
     }else{
       const today = new Date();
@@ -289,14 +378,14 @@ async function render(){
       const pStart = lastYear(start), pEnd = lastYear(today);
       document.getElementById("dateLabel").textContent = labelFor(start, today);
       setLegend("Šiemet", "Pernai");
-      html = await Promise.all(CITIES.map(async c => {
+      html = await Promise.all(CITIES.map(async (c, i) => {
         const [nowData, pastData] = await Promise.all([
           fetchNow(c),
           fetchPast(c, shift(pStart,-2), shift(pEnd,2))
         ]);
         const now  = stats(slicePeriod(nowData, start, today));
         const past = stats(slicePeriod(pastData, pStart, pEnd));
-        return cityCard(c, now, past, "Šiemet", "Pernai", "šiemet", "pernai");
+        return cityCard(c, i, now, past, "Šiemet", "Pernai", "šiemet", "pernai");
       }));
     }
     if(seq !== renderSeq) return;
@@ -320,6 +409,28 @@ const dateB = document.getElementById("dateB");
 [dateA, dateB].forEach(el => el.addEventListener("change", () => {
   if(el.value && period === "custom") render();
 }));
+
+// Paspaudus miestą — išskleidžiamas dviejų dienų valandų grafikas
+document.getElementById("cities").addEventListener("click", async e => {
+  if(period !== "day" && period !== "custom") return;
+  const card = e.target.closest(".city");
+  if(!card || card.dataset.i === undefined) return;
+  const boxEl = card.querySelector(".chartBox");
+  if(!boxEl) return;
+  if(!boxEl.hidden){ boxEl.hidden = true; return; }
+  boxEl.hidden = false;
+  if(boxEl.dataset.loaded) return;
+  boxEl.innerHTML = '<div class="nochart">Kraunama…</div>';
+  const c = CITIES[+card.dataset.i];
+  const {dA, dB} = chartDates();
+  try{
+    const [ra, rb] = await Promise.all([fetchDayHourly(c, dA), fetchDayHourly(c, dB)]);
+    boxEl.innerHTML = chartSVG(sliceHours(ra, dA), sliceHours(rb, dB));
+    boxEl.dataset.loaded = "1";
+  }catch(err){
+    boxEl.innerHTML = '<div class="nochart">Nepavyko užkrauti (' + err.message + ')</div>';
+  }
+});
 
 document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button");
