@@ -98,6 +98,20 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .rain b.bn{color:var(--now)}
 .rain b.bp{color:var(--past)}
 .rain small{color:var(--muted);font-weight:400}
+.comfort{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:.76rem;color:var(--muted)}
+.cvals{display:flex;align-items:center;gap:6px}
+.mk{width:8px;height:8px;border-radius:3px;display:inline-block;flex:none}
+.mkn{background:var(--now)}
+.mkp{background:var(--past)}
+.cpill{min-width:34px;text-align:center;padding:2px 8px;border-radius:99px;font-weight:700;font-size:.8rem;font-variant-numeric:tabular-nums}
+.cdelta{font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.bad{margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:.76rem;color:var(--muted)}
+.bad b{color:var(--text);font-weight:700}
+.dots{display:flex;align-items:center;gap:3px;margin-top:5px}
+.dots .lab{width:13px;font-size:.62rem;font-weight:700;flex:none}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:none}
+.dot.bd{background:var(--warm)}
+.dot.na{background:transparent;border:1px solid var(--line)}
 .city.tappable{cursor:pointer}
 .chartBox{margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
 .nochart{text-align:center;color:var(--muted);font-size:.78rem;padding:14px 0}
@@ -122,9 +136,11 @@ footer{text-align:center;font-size:.68rem;color:var(--muted);margin-top:18px;opa
 .callegend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}
 .cl-lt::before{background:var(--now)}
 .cl-lv::before{background:var(--past)}
-.calgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px}
+.calgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .month{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
 .month h3{font-size:.8rem;font-weight:700;text-transform:capitalize;margin-bottom:6px;text-align:center}
+.month h3 .yp{color:var(--past)}
+.month h3 .yc{color:var(--now)}
 .month table{width:100%;border-collapse:collapse;font-size:.64rem;text-align:center;font-variant-numeric:tabular-nums}
 .month th{color:var(--muted);font-weight:600;padding:2px 0;font-size:.58rem}
 .month td{padding:3px 0;border-radius:5px}
@@ -227,7 +243,32 @@ const CITIES = [
   {name:"Šiauliai", lat:55.93, lon:23.31},
   {name:"Ryga",     lat:56.95, lon:24.11},
 ];
-const DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum";
+const DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum,"
+  + "wind_speed_10m_max,wind_gusts_10m_max,sunshine_duration,daylight_duration";
+const DAILY_FIELDS = DAILY.split(",");
+const HOURLY = "temperature_2m,precipitation";
+
+/* Komforto indekso (0–100) svoriai ir formos, derinta Baltijos klimatui.
+   Temperatūra — varpas su plokščia viršūne [tLo..tHi]; tolstant nuo jos
+   balai krinta pagal exp(-(d/σ)²), į karštį (sigmaHot) greičiau nei į šaltį,
+   nes 30°+ čia retas ir sunkiai pakeliamas. Saulė vertinama kaip
+   sunshine/daylight santykis — automatiškai normalizuota žiemai/vasarai. */
+const COMFORT = {
+  wT: .45, wRain: .25, wWind: .15, wSun: .15,  // komponentų svoriai
+  tLo: 18, tHi: 24,         // optimali paros vid. temperatūra °C
+  sigmaCold: 12,            // 10° → ~64 balų, 0° → ~10
+  sigmaHot: 7,              // 28° → ~72, 32° → ~27
+  rainHalf: 7,              // krituliai: 100·exp(-mm/7); 3 mm → 65, 10 mm → 24
+  windFree: 4, windMax: 16  // m/s: iki 4 — 100 balų, ties 16 — 0
+};
+
+/* „Blogos dienos" kriterijai (pakanka bet kurio vieno) */
+const BAD_DAY = {
+  rainMm: 3,        // krituliai > 3 mm
+  tavgBelow: 0,     // vidutinė paros temperatūra < 0°
+  gustsMs: 15,      // maksimalūs vėjo gūsiai > 15 m/s
+  comfortBelow: 35  // komforto indeksas < 35
+};
 let period = "day";
 let subMode = "single";   // „Data" tabo režimas: viena diena ar laikotarpis
 let rangeCmp = "w1";      // su kuo lyginti laikotarpį
@@ -285,16 +326,19 @@ async function getJSON(url){
   return j;
 }
 
-// Paros suvestinės: pastarosios ~3 mėn. ir prognozė
+// Pastarosios ~3 mėn. ir prognozė: paros suvestinės IR valandiniai vienoje
+// užklausoje — ją dalinasi visi rodiniai, tad užklausų mažiau, ne daugiau
 async function fetchRecent(c){
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
-    + `&daily=${DAILY}&past_days=92&forecast_days=16&timezone=auto`;
+    + `&daily=${DAILY}&hourly=${HOURLY}&past_days=92&forecast_days=16`
+    + `&wind_speed_unit=ms&timezone=auto`;
   return getJSON(url);
 }
 // Paros suvestinės iš archyvo (nuo 1940 m., vėluoja ~5 d.)
 async function fetchPast(c, start, end){
   const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
-    + `&start_date=${fmtDate(start)}&end_date=${fmtDate(end)}&daily=${DAILY}&timezone=auto`;
+    + `&start_date=${fmtDate(start)}&end_date=${fmtDate(end)}&daily=${DAILY}`
+    + `&wind_speed_unit=ms&timezone=auto`;
   return getJSON(url);
 }
 // Paros duomenys bet kokiam laikotarpiui: senesnė dalis iš archyvo,
@@ -304,35 +348,36 @@ async function rangeDaily(c, s, e){
   const datas = [];
   if(s <= cut) datas.push(await fetchPast(c, s, e <= cut ? e : cut));
   if(e > cut) datas.push(await fetchRecent(c));
-  const merged = {daily:{time:[], temperature_2m_max:[], temperature_2m_min:[], precipitation_sum:[]}};
+  const merged = {daily:{time:[]}};
+  DAILY_FIELDS.forEach(f => merged.daily[f] = []);
   const seen = {};
   datas.forEach(j => {
     j.daily.time.forEach((t,i) => {
       if(seen[t]) return;
       seen[t] = 1;
       merged.daily.time.push(t);
-      merged.daily.temperature_2m_max.push(j.daily.temperature_2m_max[i]);
-      merged.daily.temperature_2m_min.push(j.daily.temperature_2m_min[i]);
-      merged.daily.precipitation_sum.push(j.daily.precipitation_sum[i]);
+      DAILY_FIELDS.forEach(f => merged.daily[f].push(j.daily[f] ? j.daily[f][i] : null));
     });
   });
   return merged;
 }
 
-/* Vienos paros valandų duomenys: {temps[24], rain[24]}.
-   Šiandienai rodome tik iki paskutinės sveikos valandos (pvz., 22:32 → iki 22:00). */
+/* Vienos paros duomenys: {temps[24], rain[24], day} — valandiniai grafikui ir
+   paros įrašas (day) komforto indeksui. Šiandienos VALANDOS kerpamos iki
+   paskutinės sveikos valandos (22:32 → iki 22:00), bet komfortas skaičiuojamas
+   iš visos paros — klausimas „ar šiandien palanku būti lauke" yra apie visą dieną. */
 async function getDayHours(c, d){
   const key = c.name + "|" + fmtDate(d);
   if(dayCache[key]) return dayCache[key];
   const temps = Array(24).fill(null), rain = Array(24).fill(null);
+  let day = null;
   const diff = Math.round((today0() - d)/86400000);
   if(diff >= -15){
-    const url = diff <= 88
-      ? `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}`
-        + `&hourly=temperature_2m,precipitation&past_days=92&forecast_days=16&timezone=auto`
-      : `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
-        + `&start_date=${fmtDate(d)}&end_date=${fmtDate(d)}&hourly=temperature_2m,precipitation&timezone=auto`;
-    const j = await getJSON(url);
+    const j = diff <= 88
+      ? await fetchRecent(c)
+      : await getJSON(`https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lon}`
+        + `&start_date=${fmtDate(d)}&end_date=${fmtDate(d)}&daily=${DAILY}&hourly=${HOURLY}`
+        + `&wind_speed_unit=ms&timezone=auto`);
     const pre = fmtDate(d) + "T";
     j.hourly.time.forEach((t,i) => {
       if(t.startsWith(pre)){
@@ -341,35 +386,47 @@ async function getDayHours(c, d){
         rain[h] = j.hourly.precipitation[i];
       }
     });
+    day = dayRecord(j, fmtDate(d));
   }
   if(fmtDate(d) === fmtDate(new Date())){
     for(let h = new Date().getHours()+1; h < 24; h++){
       temps[h] = null; rain[h] = null;
     }
   }
-  return dayCache[key] = {temps, rain};
+  return dayCache[key] = {temps, rain, day};
 }
 
 /* ---------- Statistika ---------- */
-function slicePeriod(data, start, end){
-  const t = data.daily.time;
-  const out = {tmax:[], tmin:[], rain:[]};
+// Vienos paros įrašas iš API atsakymo (i — indeksas daily masyvuose)
+function dayRecordAt(j, i, date){
+  const get = f => (j.daily[f] && j.daily[f][i] !== undefined) ? j.daily[f][i] : null;
+  return {
+    date,
+    tmax: get("temperature_2m_max"), tmin: get("temperature_2m_min"),
+    rain: get("precipitation_sum"),  wind: get("wind_speed_10m_max"),
+    gusts: get("wind_gusts_10m_max"),
+    sun: get("sunshine_duration"),   daylight: get("daylight_duration")
+  };
+}
+function dayRecord(j, dateKey){
+  const i = j.daily ? j.daily.time.indexOf(dateKey) : -1;
+  return i < 0 ? null : dayRecordAt(j, i, dateKey);
+}
+// Laikotarpio dienos kaip įrašų masyvas [start..end]
+function sliceDays(data, start, end){
+  const out = [];
   const s = fmtDate(start), e = fmtDate(end);
-  for(let i=0;i<t.length;i++){
-    if(t[i] >= s && t[i] <= e){
-      out.tmax.push(data.daily.temperature_2m_max[i]);
-      out.tmin.push(data.daily.temperature_2m_min[i]);
-      out.rain.push(data.daily.precipitation_sum[i]);
-    }
-  }
+  data.daily.time.forEach((t,i) => {
+    if(t >= s && t <= e) out.push(dayRecordAt(data, i, t));
+  });
   return out;
 }
-function stats(sl){
-  const tmax = avg(sl.tmax), tmin = avg(sl.tmin);
+function stats(days){
+  const tmax = avg(days.map(d => d.tmax)), tmin = avg(days.map(d => d.tmin));
   return {
     tavg: (tmax!==null && tmin!==null) ? (tmax+tmin)/2 : null,
     tmax, tmin,
-    rain: sum(sl.rain)
+    rain: sum(days.map(d => d.rain))
   };
 }
 function statsFromHours(h){
@@ -383,7 +440,90 @@ function statsFromHours(h){
   };
 }
 
+/* ---------- Komforto indeksas ir blogos dienos ---------- */
+// Vienos paros komfortas 0–100: {score, partial} arba null, jei nėra duomenų.
+// Trūkstant dalies parametrų svoriai pernormuojami per likusius (partial=true),
+// todėl NaN niekada negaunamas.
+function comfortIndex(d){
+  if(!d) return null;
+  const parts = [];
+  if(d.tmax!==null && d.tmin!==null){
+    const t = (d.tmax + d.tmin)/2;
+    const dist = t < COMFORT.tLo ? COMFORT.tLo - t : t > COMFORT.tHi ? t - COMFORT.tHi : 0;
+    const sigma = t < COMFORT.tLo ? COMFORT.sigmaCold : COMFORT.sigmaHot;
+    parts.push({w:COMFORT.wT, s:100*Math.exp(-((dist/sigma)**2))});
+  }
+  if(d.rain!==null) parts.push({w:COMFORT.wRain, s:100*Math.exp(-d.rain/COMFORT.rainHalf)});
+  if(d.wind!==null){
+    const over = Math.max(0, d.wind - COMFORT.windFree);
+    parts.push({w:COMFORT.wWind, s:100*Math.max(0, 1 - over/(COMFORT.windMax - COMFORT.windFree))});
+  }
+  if(d.sun!==null && d.daylight) parts.push({w:COMFORT.wSun, s:100*Math.min(1, d.sun/d.daylight)});
+  if(!parts.length) return null;
+  const wSum = parts.reduce((a,p) => a+p.w, 0);
+  return {
+    score: Math.round(parts.reduce((a,p) => a + p.w*p.s, 0)/wSum),
+    partial: parts.length < 4
+  };
+}
+// Laikotarpiui — dienų indeksų vidurkis (ne vidurkių indeksas,
+// kad varpo forma neišsilygintų)
+function comfortForDays(days){
+  const list = days.map(comfortIndex).filter(x => x);
+  if(!list.length) return null;
+  return {
+    score: Math.round(list.reduce((a,x) => a+x.score, 0)/list.length),
+    partial: list.some(x => x.partial) || list.length < days.length
+  };
+}
+// Ar para „bloga" pagal BAD_DAY kriterijus; null — nepakanka duomenų spręsti
+function badDayInfo(d){
+  const tavg = (d.tmax!==null && d.tmin!==null) ? (d.tmax+d.tmin)/2 : null;
+  const c = comfortIndex(d);
+  if(d.rain===null && tavg===null && d.gusts===null && !c) return null;
+  const why = [];
+  if(d.rain!==null && d.rain > BAD_DAY.rainMm) why.push(`krituliai ${d.rain.toFixed(1)} mm`);
+  if(tavg!==null && tavg < BAD_DAY.tavgBelow) why.push(`vid. temp. ${tavg.toFixed(1)}°`);
+  if(d.gusts!==null && d.gusts > BAD_DAY.gustsMs) why.push(`gūsiai ${Math.round(d.gusts)} m/s`);
+  if(c && c.score < BAD_DAY.comfortBelow) why.push(`komfortas ${c.score}`);
+  return {bad: why.length > 0, why: why.length ? why.join(", ") : "gera diena"};
+}
+
 /* ---------- Kortelės ---------- */
+// Komforto „piliulė": spalva pagal skalę raudona→geltona→žalia (hue 0→120)
+function comfortPill(c, label){
+  if(!c) return `<b class="cpill" style="background:rgba(143,169,187,.15);color:var(--muted)"`
+    + ` title="${label}: nėra duomenų">–</b>`;
+  const h = Math.round(c.score*1.2);
+  const t = `${label}: ${c.score}/100`
+    + (c.partial ? " (dalinis — trūksta dalies parametrų)" : "");
+  return `<b class="cpill" style="background:hsla(${h},60%,50%,.18);color:hsl(${h},70%,62%)"`
+    + ` title="${t}">${c.partial?"~":""}${c.score}</b>`;
+}
+
+// Mėnesio „blogų dienų" palyginimas: skaičiai + taškelių eilutės
+// (taškas = mėnesio diena nuo 1 d.; pilkas — gera, oranžinis — bloga,
+// tuščias — nėra duomenų ir į skaičių neįtraukiama)
+function badDaysHTML(daysA, daysB){
+  const row = days => {
+    let dots = "", bad = 0, known = 0;
+    days.forEach(d => {
+      const info = badDayInfo(d);
+      if(!info){ dots += `<span class="dot na" title="${d.date}: nėra duomenų"></span>`; return; }
+      known++;
+      if(info.bad) bad++;
+      dots += `<span class="dot${info.bad?" bd":""}" title="${d.date}: ${info.why}"></span>`;
+    });
+    return {dots, bad, known};
+  };
+  const a = row(daysA), b = row(daysB);
+  return `<div class="bad">
+    <div>Blogos dienos: <b>${a.bad} iš ${a.known}</b> <span>(pernai: ${b.bad} iš ${b.known})</span></div>
+    <div class="dots"><span class="lab" style="color:var(--now)">Š</span>${a.dots}</div>
+    <div class="dots"><span class="lab" style="color:var(--past)">P</span>${b.dots}</div>
+  </div>`;
+}
+
 function barWidth(t, min, max){
   if(t===null) return 0;
   const range = Math.max(max-min, 1);
@@ -414,16 +554,35 @@ function cityCard(c, idx, now, past, o){
   const rainVal = r => r===null ? "–"
     : r.toFixed(1)+" mm" + (o.nDays>1 && r>0 ? ` <small>(${(r/o.nDays).toFixed(1)}/d.)</small>` : "");
 
+  let comfortHTML = "";
+  if(o.cNow !== undefined){
+    let delta = "";
+    if(o.cNow && o.cPast){
+      const d = o.cNow.score - o.cPast.score;
+      delta = `<span class="cdelta">${d>0?"+":""}${d}</span>`;
+    }
+    comfortHTML = `<div class="comfort">
+      <span>Komfortas lauke</span>
+      <span class="cvals">
+        <i class="mk mkn"></i>${comfortPill(o.cNow, o.tagNow)}
+        <i class="mk mkp"></i>${comfortPill(o.cPast, o.tagPast)}
+        ${delta}
+      </span>
+    </div>`;
+  }
+
   return `<div class="city${o.tappable?" tappable":""}" data-i="${idx}">
     <h2>${c.name} ${deltaHTML}</h2>
     <div class="rows">
       ${row(o.tagNow, now, "now")}
       ${row(o.tagPast, past, "past")}
     </div>
+    ${comfortHTML}
     <div class="rain">
       <span>Krituliai${o.rainNow?" "+o.rainNow:""}: <b class="bn">${rainVal(now.rain)}</b></span>
       <span>${o.rainPast?o.rainPast+": ":""}<b class="bp">${rainVal(past.rain)}</b></span>
     </div>
+    ${o.badHTML || ""}
     ${o.tappable ? '<div class="chartBox" hidden></div>' : ""}
   </div>`;
 }
@@ -552,7 +711,7 @@ function holidayList(y){
   return L;
 }
 
-function monthHTML(y, m, map){
+function monthHTML(y, m, map, cur){
   const last = new Date(y, m+1, 0);
   const name = new Date(y, m, 1).toLocaleDateString("lt-LT", {month:"long"});
   const todayKey = fmtDate(new Date());
@@ -575,7 +734,7 @@ function monthHTML(y, m, map){
   const pre = `${y}-${String(m+1).padStart(2,"0")}`;
   const list = Object.keys(map).filter(k=>k.startsWith(pre)).sort()
     .map(k => map[k].map(h=>`<div><b>${+k.slice(8)} d.</b> ${h.name} · ${h.who}</div>`).join("")).join("");
-  return `<div class="month"><h3>${name}</h3>
+  return `<div class="month"><h3>${name} <span class="${cur?"yc":"yp"}">${y}</span></h3>
     <table>
       <tr><th class="wk">sav.</th><th>Pr</th><th>An</th><th>Tr</th><th>Kt</th><th>Pn</th><th>Št</th><th>Sk</th></tr>
       ${rows}
@@ -583,12 +742,22 @@ function monthHTML(y, m, map){
     ${list ? `<div class="mh">${list}</div>` : ""}</div>`;
 }
 
+// Du metai greta: kairėje pernai (mėlyna), dešinėje šiemet (geltona),
+// mėnuo prie mėnesio — sausis 2025 šalia sausio 2026
 function calendarHTML(y){
-  const map = {};
-  holidayList(y).forEach(h => { (map[h.k] = map[h.k]||[]).push(h); });
-  const months = Array.from({length:12}, (_,m) => monthHTML(y, m, map)).join("");
+  const mkMap = yy => {
+    const m = {};
+    holidayList(yy).forEach(h => { (m[h.k] = m[h.k]||[]).push(h); });
+    return m;
+  };
+  const mapPrev = mkMap(y-1), mapCur = mkMap(y);
+  let months = "";
+  for(let m=0; m<12; m++){
+    months += monthHTML(y-1, m, mapPrev, false) + monthHTML(y, m, mapCur, true);
+  }
   return `<div class="calnav">
-      <button id="cprev" aria-label="Ankstesni metai">‹</button><b>${y}</b>
+      <button id="cprev" aria-label="Ankstesni metai">‹</button>
+      <b>${y-1} vs ${y}</b>
       <button id="cnext" aria-label="Kiti metai">›</button>
     </div>
     <div class="callegend"><span class="cl-lt">LT šventė</span><span class="cl-lv">LV šventė</span></div>
@@ -642,7 +811,8 @@ async function render(){
       html = await Promise.all(CITIES.map(async (c, i) => {
         const [ha, hb] = await Promise.all([getDayHours(c, dA), getDayHours(c, dB)]);
         return cityCard(c, i, statsFromHours(ha), statsFromHours(hb),
-          {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:1, tappable:true});
+          {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:1, tappable:true,
+           cNow:comfortIndex(ha.day), cPast:comfortIndex(hb.day)});
       }));
     }else{
       // Daugiadieniai laikotarpiai: A (šis) ir B (lyginamasis)
@@ -681,8 +851,11 @@ async function render(){
       }
       html = await Promise.all(CITIES.map(async (c, i) => {
         const [da, db] = await Promise.all([rangeDaily(c, s, e2), rangeDaily(c, bs, be)]);
-        return cityCard(c, i, stats(slicePeriod(da, s, e2)), stats(slicePeriod(db, bs, be)),
-          {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:len+1, tappable:false});
+        const daysA = sliceDays(da, s, e2), daysB = sliceDays(db, bs, be);
+        const o = {tagNow:lA, tagPast:lB, rainNow:rA, rainPast:rB, nDays:len+1, tappable:false,
+          cNow:comfortForDays(daysA), cPast:comfortForDays(daysB)};
+        if(period === "month") o.badHTML = badDaysHTML(daysA, daysB);
+        return cityCard(c, i, stats(daysA), stats(daysB), o);
       }));
     }
     if(seq !== renderSeq) return;
