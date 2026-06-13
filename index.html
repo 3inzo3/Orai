@@ -56,6 +56,32 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   font-size:.78rem;font-weight:600;cursor:pointer;
 }
 .tabs button.active{background:var(--now);color:#21303d}
+/* Poskyrių (Diena/Savaitė/Mėnuo/Data) juosta po „Palyginti" — žemesnio
+   lygio, mėlynas akcentas, kad hierarchija būtų aiški */
+.subtabs{display:flex;gap:5px;margin:-8px 0 16px;background:var(--panel2);border-radius:12px;padding:4px}
+.subtabs button{flex:1 1 auto;border:0;border-radius:9px;padding:8px 6px;background:transparent;color:var(--muted);font-size:.76rem;font-weight:600;cursor:pointer}
+.subtabs button.active{background:var(--past);color:#10212e}
+/* Prognozės trukmės pasirinkimas (3/7/14 d.) */
+.fcpick{margin:-6px 0 14px}
+/* Prognozės dienų sąrašas miesto kortelėje */
+.fclist{display:flex;flex-direction:column}
+.fcday{display:grid;grid-template-columns:54px 1fr;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.fcday:first-child{border-top:0}
+.fcday.we{background:rgba(255,201,77,.05)}
+.fcd-date{display:flex;flex-direction:column;line-height:1.2}
+.fcd-date .wd{font-weight:700;font-size:.8rem;display:flex;align-items:center;gap:4px}
+.fcday.we .fcd-date .wd{color:var(--now)}
+.fcd-date .dt{font-size:.66rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.fchol{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}
+.fchol.lt{background:var(--now)}
+.fchol.lv{background:var(--past)}
+.fchol.both{background:linear-gradient(135deg,var(--now) 50%,var(--past) 50%)}
+.fcd-main{display:flex;flex-direction:column;gap:3px;min-width:0}
+.fcd-line{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.84rem;font-variant-numeric:tabular-nums}
+.fcd-now .lo{color:var(--muted);font-size:.78rem}
+.fcd-past{font-size:.72rem;color:var(--past)}
+.fcrain{color:var(--rain);font-size:.74rem;margin-left:4px}
+.fcconf{text-align:center;font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;opacity:.7;padding:9px 0 5px}
 .pick{display:none;flex-direction:column;gap:9px;margin:-6px 0 14px}
 .pick.show{display:flex}
 .pickrow{display:flex;gap:10px}
@@ -187,11 +213,16 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 </header>
 
 <div class="tabs" id="tabs">
+  <button data-g="compare" class="active">Palyginti</button>
+  <button data-g="forecast">Prognozė</button>
+  <button data-g="calendar">Kalendorius</button>
+</div>
+
+<div class="subtabs" id="subtabs">
   <button data-p="day" class="active">Diena</button>
   <button data-p="week">Savaitė</button>
   <button data-p="month">Mėnuo</button>
   <button data-p="custom">Data</button>
-  <button data-p="year">Kalendorius</button>
 </div>
 
 <div class="pickrow" id="dayPickRow" style="margin:-6px 0 14px" hidden>
@@ -239,6 +270,14 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   </div>
 </div>
 
+<div class="fcpick" id="fcPick" hidden>
+  <div class="seg" id="fcSeg">
+    <button data-n="3">3 d.</button>
+    <button data-n="7" class="active">7 d.</button>
+    <button data-n="14">14 d.</button>
+  </div>
+</div>
+
 <div class="legend" id="legend">
   <span class="l-now" id="legNow">Šiemet</span>
   <span class="l-past" id="legPast">Pernai</span>
@@ -283,6 +322,11 @@ const I18N = {
     h1:"🌤 Dabar vs pernai",
     refresh:"Atnaujinti duomenis",
     tab_day:"Diena", tab_week:"Savaitė", tab_month:"Mėnuo", tab_custom:"Data", tab_year:"Kalendorius",
+    group_compare:"Palyginti", group_forecast:"Prognozė", group_calendar:"Kalendorius",
+    fcDur: n => `${n} d.`,
+    fcLabel: n => `${n} d. prognozė`,
+    fcLessAccurate:"mažiau tikslu",
+    fcHint:"Lyginama su ta pačia savaitės diena pernai · blukimas = mažesnis tikslumas",
     dayPickLabel:"Diena (lyginama su ta pačia sav. diena pernai)",
     seg_single:"Viena diena", seg_range:"Kelios dienos",
     lbl_dateA:"Diena", lbl_dateB:"Lyginti su",
@@ -335,6 +379,11 @@ const I18N = {
     h1:"🌤 Now vs last year",
     refresh:"Refresh data",
     tab_day:"Day", tab_week:"Week", tab_month:"Month", tab_custom:"Date", tab_year:"Calendar",
+    group_compare:"Compare", group_forecast:"Forecast", group_calendar:"Calendar",
+    fcDur: n => `${n}d`,
+    fcLabel: n => `${n}-day forecast`,
+    fcLessAccurate:"less accurate",
+    fcHint:"Compared with the same weekday last year · fading = lower accuracy",
     dayPickLabel:"Day (compared to the same weekday last year)",
     seg_single:"Single day", seg_range:"Several days",
     lbl_dateA:"Day", lbl_dateB:"Compare with",
@@ -433,6 +482,8 @@ const BAD_DAY = {
    valandos 11..20. minMm — slenkstis, kad dulksna nežymėtų visko. */
 const DAYRAIN = {fromH: 11, toH: 20, minMm: 0.3};
 let period = "day";
+let lastComparePeriod = "day";  // paskutinis „Palyginti" poskyris (grįžimui)
+let fcDays = 7;           // prognozės trukmė: 3 / 7 / 14 d.
 let subMode = "single";   // „Data" tabo režimas: viena diena ar laikotarpis
 let rangeCmp = "w1";      // su kuo lyginti laikotarpį
 let calYear = new Date().getFullYear();
@@ -795,6 +846,57 @@ function cityCard(c, idx, now, past, o){
   </div>`;
 }
 
+/* ---------- Prognozė („Ko tikėtis") ---------- */
+// Vienos prognozės dienos eilutė: šių metų prognozė vs pernai ta pati sav. diena.
+// op — patikimumo blukimas; holMap — švenčių žemėlapis (data → įrašai).
+function fcDayRow(d, nowRec, pastRec, op, holMap){
+  const isWE = d.getDay()===0 || d.getDay()===6;
+  const hs = holMap[fmtDate(d)] || [];
+  let holDot = "";
+  if(hs.length){
+    const lt = hs.some(h=>h.who.includes("LT")), lv = hs.some(h=>h.who.includes("LV"));
+    const cls = lt&&lv ? "both" : lt ? "lt" : "lv";
+    holDot = `<span class="fchol ${cls}" title="${hs.map(h=>h.name).join(", ")}"></span>`;
+  }
+  // šių metų temperatūros (max ryškiai, min blankiau) + dienos krituliai
+  const tNow = nowRec
+    ? `<b>${deg(nowRec.tmax)}</b> <span class="lo">${deg(nowRec.tmin)}</span>`
+    : `<span class="lo">${t("noData")}</span>`;
+  const rain = (nowRec && nowRec.rain!==null && nowRec.rain>0)
+    ? `<span class="fcrain">☔ ${nowRec.rain.toFixed(1)} mm</span>` : "";
+  const tPast = pastRec ? `${deg(pastRec.tmax)} / ${deg(pastRec.tmin)}` : t("noData");
+  return `<div class="fcday${isWE?" we":""}" style="opacity:${op}">
+    <div class="fcd-date">
+      <span class="wd">${cap(fDow(d))}${holDot}</span>
+      <span class="dt">${fShort(d)}</span>
+    </div>
+    <div class="fcd-main">
+      <div class="fcd-line">
+        <span class="fcd-now">${tNow}${rain}</span>
+        ${comfortPill(comfortIndex(nowRec), t("thisYear"))}
+      </div>
+      <div class="fcd-line fcd-past">
+        <span>${t("lastYearLc")}: ${tPast}</span>
+        ${comfortPill(comfortIndex(pastRec), t("lastYear"))}
+      </div>
+    </div>
+  </div>`;
+}
+// Miesto prognozės kortelė: dienų sąrašas su patikimumo pakopomis
+// (1–3 d. ryškiai, 4–7 vidutiniškai, 8–14 blankiai + „mažiau tikslu" žymė)
+function forecastCard(c, fcList, jNow, pastData, holMap, todayStart){
+  let rows = "", confShown = false;
+  fcList.forEach(d => {
+    const nowRec = dayRecord(jNow, fmtDate(d));
+    const pastRec = dayRecord(pastData, fmtDate(isoAlign(d)));
+    const offset = Math.round((d - todayStart)/86400000);
+    const op = offset <= 2 ? 1 : offset <= 6 ? .82 : .55;
+    if(offset >= 7 && !confShown){ confShown = true; rows += `<div class="fcconf">${t("fcLessAccurate")}</div>`; }
+    rows += fcDayRow(d, nowRec, pastRec, op, holMap);
+  });
+  return `<div class="city"><h2>${cityLabel(c)}</h2><div class="fclist">${rows}</div></div>`;
+}
+
 /* ---------- Valandų grafikas ---------- */
 function pathFor(vals, x, y){
   let p = "", started = false;
@@ -992,15 +1094,30 @@ async function renderCities(buildCard){
     : `<div class="city"><h2>${cityLabel(CITIES[i])}</h2><div class="nochart">${errText(r.reason)}</div></div>`);
 }
 
+// Tabo grupė pagal periodą: „Palyginti" (day/week/month/custom), „Prognozė", „Kalendorius"
+function periodGroup(p){ return p==="year" ? "calendar" : p==="forecast" ? "forecast" : "compare"; }
+// Atnaujina tabų ir poskyrių aktyvumą bei poskyrių juostos matomumą
+function updateTabUI(){
+  const g = periodGroup(period);
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("active", x.dataset.g===g));
+  document.getElementById("subtabs").hidden = g !== "compare";
+  document.querySelectorAll("#subtabs button").forEach(x => x.classList.toggle("active", x.dataset.p===period));
+}
+
 async function render(){
   const seq = ++renderSeq;
   const statusEl = document.getElementById("status");
   const box = document.getElementById("cities");
   const isDayMode = period==="day" || (period==="custom" && subMode==="single");
-  document.getElementById("hint").style.display = isDayMode ? "" : "none";
+  updateTabUI();
+  const hintEl = document.getElementById("hint");
+  if(isDayMode){ hintEl.style.display = ""; hintEl.textContent = t("hint"); }
+  else if(period==="forecast"){ hintEl.style.display = ""; hintEl.textContent = t("fcHint"); }
+  else hintEl.style.display = "none";
   document.getElementById("legend").style.display = period==="year" ? "none" : "";
   document.getElementById("pick").classList.toggle("show", period==="custom");
   document.getElementById("dayPickRow").hidden = period !== "day";
+  document.getElementById("fcPick").hidden = period !== "forecast";
   document.getElementById("cityBox").hidden = period === "year";
 
   if(period === "year"){
@@ -1016,7 +1133,26 @@ async function render(){
 
   try{
     let html;
-    if(isDayMode){
+    if(period === "forecast"){
+      // Ateinančios fcDays dienos nuo šiandien vs pernai ta pati sav. diena
+      const start = today0();
+      const fcList = [];
+      for(let i=0; i<fcDays; i++) fcList.push(shift(start, i));
+      const last = fcList[fcList.length-1];
+      // Pernai lygiuotės — ištisinis archyvo rėžis (sav. dienos eina iš eilės)
+      const a1 = isoAlign(start), a2 = isoAlign(last);
+      const pStart = a1 <= a2 ? a1 : a2, pEnd = a1 <= a2 ? a2 : a1;
+      // Švenčių žemėlapis prognozės laikotarpio metams
+      const holMap = {};
+      [...new Set([start.getFullYear(), last.getFullYear()])].forEach(yy =>
+        holidayList(yy).forEach(h => { (holMap[h.k] = holMap[h.k]||[]).push(h); }));
+      document.getElementById("dateLabel").textContent = t("fcLabel", fcDays);
+      setLegend(t("thisYear"), t("lastYear"));
+      html = await renderCities(async (c) => {
+        const [jNow, pastData] = await Promise.all([fetchRecent(c), rangeDaily(c, pStart, pEnd)]);
+        return forecastCard(c, fcList, jNow, pastData, holMap, start);
+      });
+    }else if(isDayMode){
       let dA, dB, lA, lB, rA, rB;
       if(period === "custom"){
         dA = parseDate(document.getElementById("dateA").value);
@@ -1195,11 +1331,27 @@ document.getElementById("cities").addEventListener("click", async e => {
   }
 });
 
+// Viršutiniai tabai (grupės): „Palyginti" grąžina paskutinį poskyrį
 document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button");
   if(!b) return;
-  period = b.dataset.p;
-  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x===b));
+  const g = b.dataset.g;
+  period = g === "forecast" ? "forecast" : g === "calendar" ? "year" : lastComparePeriod;
+  render();
+});
+// Poskyriai (Diena/Savaitė/Mėnuo/Data)
+document.getElementById("subtabs").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b) return;
+  period = lastComparePeriod = b.dataset.p;
+  render();
+});
+// Prognozės trukmė (3/7/14 d.)
+document.getElementById("fcSeg").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b) return;
+  fcDays = +b.dataset.n;
+  document.querySelectorAll("#fcSeg button").forEach(x => x.classList.toggle("active", x===b));
   render();
 });
 
@@ -1232,7 +1384,9 @@ function applyI18n(){
   document.title = t("title");
   document.querySelector("h1").textContent = t("h1");
   document.getElementById("refresh").setAttribute("aria-label", t("refresh"));
-  document.querySelectorAll("#tabs button").forEach(b => b.textContent = t("tab_"+b.dataset.p));
+  document.querySelectorAll("#tabs button").forEach(b => b.textContent = t("group_"+b.dataset.g));
+  document.querySelectorAll("#subtabs button").forEach(b => b.textContent = t("tab_"+b.dataset.p));
+  document.querySelectorAll("#fcSeg button").forEach(b => b.textContent = t("fcDur", +b.dataset.n));
   document.getElementById("dayPickLabel").textContent = t("dayPickLabel");
   document.querySelectorAll("#seg button").forEach(b => b.textContent = t("seg_"+b.dataset.s));
   document.getElementById("lblDateA").textContent = t("lbl_dateA");
