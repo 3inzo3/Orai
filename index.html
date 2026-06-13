@@ -553,14 +553,23 @@ function badDayInfo(d){
 }
 
 /* ---------- Kortelės ---------- */
-// Komforto „piliulė": spalva pagal skalę raudona→geltona→žalia (hue 0→120)
+// Komforto spalva raudona→geltona→žalia. Tiesinis hue=score×1.2 darydavo
+// 68 balų jau žalią; laipsnio kreivė (^1.7) pastumia vidurį į geltoną/oranžinę,
+// tad žalia lieka tik tikrai geroms dienoms. Inkarai: ~35 (blogos dienos riba)
+// raudona-oranžinė, ~50 oranžinė, ~68 geltona, 85+ žalia.
+function comfortHue(score){ return Math.round(120 * Math.pow(Math.max(0, score)/100, 1.7)); }
+// Žodinė kokybės etiketė (tooltip'ui), suderinta su blogos dienos slenksčiu
+function comfortWord(score){
+  return score < BAD_DAY.comfortBelow ? "prasta" : score < 55 ? "vidutiniška"
+       : score < 75 ? "gera" : "puiki";
+}
 function comfortPill(c, label){
   if(!c) return `<b class="cpill" style="background:rgba(143,169,187,.15);color:var(--muted)"`
     + ` title="${label}: nėra duomenų">–</b>`;
-  const h = Math.round(c.score*1.2);
-  const t = `${label}: ${c.score}/100`
+  const h = comfortHue(c.score);
+  const t = `${label}: ${c.score}/100 — ${comfortWord(c.score)}`
     + (c.partial ? " (dalinis — trūksta dalies parametrų)" : "");
-  return `<b class="cpill" style="background:hsla(${h},60%,50%,.18);color:hsl(${h},70%,62%)"`
+  return `<b class="cpill" style="background:hsla(${h},60%,50%,.18);color:hsl(${h},72%,62%)"`
     + ` title="${t}">${c.partial?"~":""}${c.score}</b>`;
 }
 
