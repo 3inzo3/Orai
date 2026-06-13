@@ -691,19 +691,21 @@ function chartSVG(A, B){
   }
   g += `<text x="${x(23).toFixed(1)}" y="${H-7}">23</text>`;
 
-  // Krituliai (mm) — stulpeliai, skalė dešinėje
+  // Krituliai (mm) — stulpeliai; skalę nusako viena žyma = aukščiausio
+  // stulpelio reikšmė (taip išvengiame painių trupmenų 0.25 / 0.5 ašyje)
   const rains = [...A.rain, ...B.rain].filter(v => v!==null && v!==undefined && v>0);
   let bars = "", raxis = "";
   if(rains.length){
-    const rmax = Math.max(Math.ceil(Math.max(...rains)*2)/2, 0.5);
+    const peak = Math.max(...rains);
+    const rmax = peak * 1.18;     // šiek tiek vietos virš aukščiausio stulpelio
     const rh = v => (H-T-B2)*v/rmax;
     const bar = (vals, cls, off) => vals.map((v,h) =>
       (v!==null && v!==undefined && v>0)
         ? `<rect class="${cls}" x="${(x(h)+off).toFixed(1)}" y="${(H-B2-rh(v)).toFixed(1)}" width="3" height="${rh(v).toFixed(1)}"/>`
         : "").join("");
     bars = bar(A.rain,"ra",-3.2) + bar(B.rain,"rb",0.2);
-    raxis = `<text class="rl" x="${W-2}" y="${T+4}">${rmax} mm</text>`
-      + `<text class="rl" x="${W-2}" y="${(T+(H-T-B2)/2+3).toFixed(1)}">${rmax/2}</text>`;
+    const lbl = peak >= 10 ? Math.round(peak) : peak.toFixed(1);
+    raxis = `<text class="rl" x="${W-2}" y="${T+4}">▲ ${lbl} mm/val.</text>`;
   }
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}${bars}
