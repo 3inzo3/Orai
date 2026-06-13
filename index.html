@@ -43,6 +43,9 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 }
 #refresh.loading{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.langsel{display:flex;gap:3px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px}
+.langsel button{border:0;border-radius:6px;padding:5px 8px;background:transparent;color:var(--muted);font-size:.72rem;font-weight:700;cursor:pointer;line-height:1}
+.langsel button.active{background:var(--now);color:#21303d}
 .tabs{
   display:flex;gap:5px;margin-bottom:16px;
   background:var(--panel2);border-radius:12px;padding:4px;
@@ -175,6 +178,10 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   </div>
   <div class="hright">
     <span id="dateLabel"></span>
+    <div class="langsel" id="langSel">
+      <button data-l="lt">LT</button>
+      <button data-l="en">EN</button>
+    </div>
     <button id="refresh" aria-label="Atnaujinti duomenis">⟳</button>
   </div>
 </header>
@@ -188,7 +195,7 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 </div>
 
 <div class="pickrow" id="dayPickRow" style="margin:-6px 0 14px" hidden>
-  <label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:var(--muted);font-weight:600">Diena (lyginama su ta pačia sav. diena pernai)
+  <label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:var(--muted);font-weight:600"><span id="dayPickLabel">Diena (lyginama su ta pačia sav. diena pernai)</span>
     <input type="date" id="dayPick" style="background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--text);padding:8px 10px;font:inherit;font-size:.88rem;width:100%;color-scheme:dark">
   </label>
 </div>
@@ -200,14 +207,14 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   </div>
   <div id="singleBox">
     <div class="pickrow">
-      <label>Diena
+      <label><span id="lblDateA">Diena</span>
         <input type="date" id="dateA">
       </label>
-      <label>Lyginti su
+      <label><span id="lblDateB">Lyginti su</span>
         <input type="date" id="dateB">
       </label>
     </div>
-    <span class="picklabel">Greitas „lyginti su“ pasirinkimas</span>
+    <span class="picklabel" id="quickCmpLabel">Greitas „lyginti su“ pasirinkimas</span>
     <div class="chips" id="chipsSingle">
       <button data-c="cal">Pernai ta pati data</button>
       <button data-c="dow">Pernai ta pati sav. diena</button>
@@ -215,14 +222,14 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   </div>
   <div id="rangeBox" hidden>
     <div class="pickrow">
-      <label>Laikotarpis nuo
+      <label><span id="lblFrom">Laikotarpis nuo</span>
         <input type="date" id="rFrom">
       </label>
-      <label>iki (imtinai)
+      <label><span id="lblTo">iki (imtinai)</span>
         <input type="date" id="rTo">
       </label>
     </div>
-    <span class="picklabel">Su kuo lyginti</span>
+    <span class="picklabel" id="cmpWhatLabel">Su kuo lyginti</span>
     <div class="chips" id="chipsRange">
       <button data-r="w1" class="active">Prieš savaitę</button>
       <button data-r="cal">Pernai (tos pačios datos)</button>
@@ -243,7 +250,7 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 <div id="cities"></div>
 
 <div id="cityBox">
-  <span class="picklabel">Miestai</span>
+  <span class="picklabel" id="citiesLabel">Miestai</span>
   <div class="chips" id="cityPick"></div>
 </div>
 
@@ -252,12 +259,137 @@ const ALL_CITIES = [
   {name:"Vilnius",    lat:54.69, lon:25.28},
   {name:"Kaunas",     lat:54.90, lon:23.91},
   {name:"Klaipėda",   lat:55.71, lon:21.13},
+  {name:"Nida",       lat:55.30, lon:21.00},
   {name:"Šiauliai",   lat:55.93, lon:23.31},
   {name:"Panevėžys",  lat:55.73, lon:24.36},
   {name:"Alytus",     lat:54.40, lon:24.05},
   {name:"Telšiai",    lat:55.98, lon:22.25},
-  {name:"Ryga",       lat:56.95, lon:24.11},
+  {name:"Ryga",       lat:56.95, lon:24.11, en:"Riga"},
 ];
+// Miesto pavadinimas pagal kalbą (vidinis raktas `name` nekinta dėl localStorage)
+function cityLabel(c){ return (lang === "en" && c.en) ? c.en : c.name; }
+
+/* ---------- Kalbos (LT/EN) ---------- */
+// Pasirinkta kalba įsimenama localStorage; numatytoji — lietuvių
+let lang = (function(){
+  try{ const s = localStorage.getItem("orai.lang"); if(s === "lt" || s === "en") return s; }catch(e){}
+  return "lt";
+})();
+const LOCALE = {lt:"lt-LT", en:"en-GB"};
+function loc(){ return LOCALE[lang]; }
+const I18N = {
+  lt:{
+    title:"Orai: dabar vs pernai",
+    h1:"🌤 Dabar vs pernai",
+    refresh:"Atnaujinti duomenis",
+    tab_day:"Diena", tab_week:"Savaitė", tab_month:"Mėnuo", tab_custom:"Data", tab_year:"Kalendorius",
+    dayPickLabel:"Diena (lyginama su ta pačia sav. diena pernai)",
+    seg_single:"Viena diena", seg_range:"Kelios dienos",
+    lbl_dateA:"Diena", lbl_dateB:"Lyginti su",
+    quickCmp:"Greitas „lyginti su“ pasirinkimas",
+    chip_cal:"Pernai ta pati data", chip_dow:"Pernai ta pati sav. diena",
+    lbl_from:"Laikotarpis nuo", lbl_to:"iki (imtinai)",
+    cmpWhat:"Su kuo lyginti",
+    rchip_w1:"Prieš savaitę", rchip_cal:"Pernai (tos pačios datos)", rchip_dow:"Pernai (tos pačios sav. dienos)",
+    thisYear:"Šiemet", lastYear:"Pernai", thisYearLc:"šiemet", lastYearLc:"pernai",
+    hint:"Spustelėk miestą — valandų grafikas (temperatūra ir krituliai)",
+    loading:"Kraunami duomenys…",
+    cities:"Miestai",
+    updatedPre:"atnaujinta ",
+    tooMany:"Per daug užklausų — palauk minutę ir spausk ⟳",
+    loadFail: m => "Nepavyko užkrauti (" + m + ")",
+    apiErr: s => "API klaida " + s,
+    cw_bad:"prasta", cw_mid:"vidutiniška", cw_good:"gera", cw_great:"puiki",
+    noData:"nėra duomenų",
+    partial:" (dalinis — trūksta dalies parametrų)",
+    bd_rain: mm => `krituliai ${mm} mm`,
+    bd_temp: tv => `vid. temp. ${tv}°`,
+    bd_gusts: g => `gūsiai ${g} m/s`,
+    bd_comfort: s => `komfortas ${s}`,
+    bd_good:"gera diena",
+    bd_rainWin: (a,b,mm) => `; lietus ${a}–${b} val.: ${mm} mm`,
+    badDaysLabel:"Blogos dienos:", of:"iš",
+    badDaysPast: (bad,known) => `(pernai: ${bad} iš ${known})`,
+    abbrNow:"Š", abbrPast:"P",
+    badCap:"oranžinis — bloga diena · mėlynas apvadas — lietus 10–20 val.",
+    comfortLabel:"Komfortas lauke",
+    rainLabel:"Krituliai",
+    perDay: x => ` <small>(${x}/d.)</small>`,
+    noHourly:"Valandinių duomenų nėra",
+    mmPerH: lbl => `▲ ${lbl} mm/val.`,
+    chartLoading:"Kraunama…",
+    prevYear:"Ankstesni metai", nextYear:"Kiti metai",
+    ltHoliday:"LT šventė", lvHoliday:"LV šventė",
+    weekAbbr:"sav.",
+    dows:["Pr","An","Tr","Kt","Pn","Št","Sk"],
+    calDay: d => `${d} d.`,
+    periodDays: n => `${n} d. laikotarpis`,
+    weekLabel: w => `${w} savaitė`,
+    monthRange: (mn,d) => `${mn}, 1–${d} d.`,
+    comparedTo: r => `Lyginama su: <b>${r}</b>`,
+    err429:"Orų serveris laikinai pristabdė užklausas (per daug per minutę). Palauk minutę ir paspausk ⟳.",
+    errGeneric: m => "Nepavyko gauti duomenų. Patikrink interneto ryšį ir bandyk dar kartą.\n(" + m + ")"
+  },
+  en:{
+    title:"Weather: now vs last year",
+    h1:"🌤 Now vs last year",
+    refresh:"Refresh data",
+    tab_day:"Day", tab_week:"Week", tab_month:"Month", tab_custom:"Date", tab_year:"Calendar",
+    dayPickLabel:"Day (compared to the same weekday last year)",
+    seg_single:"Single day", seg_range:"Several days",
+    lbl_dateA:"Day", lbl_dateB:"Compare with",
+    quickCmp:"Quick “compare with” options",
+    chip_cal:"Same date last year", chip_dow:"Same weekday last year",
+    lbl_from:"Period from", lbl_to:"to (inclusive)",
+    cmpWhat:"Compare with",
+    rchip_w1:"A week earlier", rchip_cal:"Last year (same dates)", rchip_dow:"Last year (same weekdays)",
+    thisYear:"This year", lastYear:"Last year", thisYearLc:"this year", lastYearLc:"last year",
+    hint:"Tap a city — hourly chart (temperature and precipitation)",
+    loading:"Loading data…",
+    cities:"Cities",
+    updatedPre:"updated ",
+    tooMany:"Too many requests — wait a minute and press ⟳",
+    loadFail: m => "Failed to load (" + m + ")",
+    apiErr: s => "API error " + s,
+    cw_bad:"poor", cw_mid:"fair", cw_good:"good", cw_great:"great",
+    noData:"no data",
+    partial:" (partial — some parameters missing)",
+    bd_rain: mm => `precipitation ${mm} mm`,
+    bd_temp: tv => `avg temp ${tv}°`,
+    bd_gusts: g => `gusts ${g} m/s`,
+    bd_comfort: s => `comfort ${s}`,
+    bd_good:"good day",
+    bd_rainWin: (a,b,mm) => `; rain ${a}–${b}h: ${mm} mm`,
+    badDaysLabel:"Bad days:", of:"of",
+    badDaysPast: (bad,known) => `(last year: ${bad} of ${known})`,
+    abbrNow:"N", abbrPast:"L",
+    badCap:"orange — bad day · blue ring — rain 10–20h",
+    comfortLabel:"Outdoor comfort",
+    rainLabel:"Precipitation",
+    perDay: x => ` <small>(${x}/day)</small>`,
+    noHourly:"No hourly data",
+    mmPerH: lbl => `▲ ${lbl} mm/h`,
+    chartLoading:"Loading…",
+    prevYear:"Previous years", nextYear:"Next years",
+    ltHoliday:"LT holiday", lvHoliday:"LV holiday",
+    weekAbbr:"Wk",
+    dows:["Mo","Tu","We","Th","Fr","Sa","Su"],
+    calDay: d => `${d}`,
+    periodDays: n => `${n}-day period`,
+    weekLabel: w => `Week ${w}`,
+    monthRange: (mn,d) => `${mn}, 1–${d}`,
+    comparedTo: r => `Compared with: <b>${r}</b>`,
+    err429:"The weather server temporarily throttled requests (too many per minute). Wait a minute and press ⟳.",
+    errGeneric: m => "Couldn't fetch data. Check your internet connection and try again.\n(" + m + ")"
+  }
+};
+// Vertimas: jei reikšmė — funkcija, iškviečiama su pateiktais argumentais
+function t(k, ...args){
+  const dict = I18N[lang] || I18N.lt;
+  let v = dict[k];
+  if(v === undefined) v = I18N.lt[k];
+  return typeof v === "function" ? v(...args) : v;
+}
 // Rodomi miestai įsimenami localStorage; daugiau miestų = daugiau užklausų,
 // tad numatytieji — keturi
 function loadCitySet(){
@@ -316,7 +448,7 @@ function clearData(){
 function markUpdated(){
   lastFetch = Date.now();
   document.getElementById("updated").textContent =
-    "atnaujinta " + new Date().toLocaleTimeString("lt-LT",{hour:"2-digit",minute:"2-digit"});
+    t("updatedPre") + new Date().toLocaleTimeString(loc(),{hour:"2-digit",minute:"2-digit"});
 }
 
 /* ---------- Datos pagalbinės ---------- */
@@ -331,7 +463,7 @@ function parseDate(s){
 }
 function shift(d, days){ const n = new Date(d); n.setDate(n.getDate()+days); return n; }
 function lastYear(d){ const n = new Date(d); n.setFullYear(n.getFullYear()-1); return n; }
-function fShort(d){ return d.toLocaleDateString("lt-LT",{month:"2-digit",day:"2-digit"}); }
+function fShort(d){ return d.toLocaleDateString(loc(),{month:"2-digit",day:"2-digit"}); }
 // Trumpa data kortelių žymoms: 26-06-12 (pilna 2026-06-12 netelpa stulpelyje)
 function fShortY(d){ return fmtDate(d).slice(2); }
 function today0(){ return parseDate(fmtDate(new Date())); }
@@ -354,7 +486,7 @@ async function getJSON(url){
   if(!cache[url]){
     cache[url] = (async () => {
       const r = await fetch(url);
-      if(!r.ok) throw new Error("API klaida " + r.status);
+      if(!r.ok) throw new Error(t("apiErr", r.status));
       return r.json();
     })();
   }
@@ -364,9 +496,7 @@ async function getJSON(url){
 // 429 = Open-Meteo minutės limitas; pasakom žmogiškai
 function errText(e){
   const m = String(e && e.message || e);
-  return m.includes("429")
-    ? "Per daug užklausų — palauk minutę ir spausk ⟳"
-    : "Nepavyko užkrauti (" + m + ")";
+  return m.includes("429") ? t("tooMany") : t("loadFail", m);
 }
 
 // Pastarosios ~3 mėn. ir prognozė: paros suvestinės IR valandiniai vienoje
@@ -545,11 +675,11 @@ function badDayInfo(d){
   const c = comfortIndex(d);
   if(d.rain===null && tavg===null && d.gusts===null && !c) return null;
   const why = [];
-  if(d.rain!==null && d.rain > BAD_DAY.rainMm) why.push(`krituliai ${d.rain.toFixed(1)} mm`);
-  if(tavg!==null && tavg < BAD_DAY.tavgBelow) why.push(`vid. temp. ${tavg.toFixed(1)}°`);
-  if(d.gusts!==null && d.gusts > BAD_DAY.gustsMs) why.push(`gūsiai ${Math.round(d.gusts)} m/s`);
-  if(c && c.score < BAD_DAY.comfortBelow) why.push(`komfortas ${c.score}`);
-  return {bad: why.length > 0, why: why.length ? why.join(", ") : "gera diena"};
+  if(d.rain!==null && d.rain > BAD_DAY.rainMm) why.push(t("bd_rain", d.rain.toFixed(1)));
+  if(tavg!==null && tavg < BAD_DAY.tavgBelow) why.push(t("bd_temp", tavg.toFixed(1)));
+  if(d.gusts!==null && d.gusts > BAD_DAY.gustsMs) why.push(t("bd_gusts", Math.round(d.gusts)));
+  if(c && c.score < BAD_DAY.comfortBelow) why.push(t("bd_comfort", c.score));
+  return {bad: why.length > 0, why: why.length ? why.join(", ") : t("bd_good")};
 }
 
 /* ---------- Kortelės ---------- */
@@ -560,17 +690,17 @@ function badDayInfo(d){
 function comfortHue(score){ return Math.round(120 * Math.pow(Math.max(0, score)/100, 1.7)); }
 // Žodinė kokybės etiketė (tooltip'ui), suderinta su blogos dienos slenksčiu
 function comfortWord(score){
-  return score < BAD_DAY.comfortBelow ? "prasta" : score < 55 ? "vidutiniška"
-       : score < 75 ? "gera" : "puiki";
+  return score < BAD_DAY.comfortBelow ? t("cw_bad") : score < 55 ? t("cw_mid")
+       : score < 75 ? t("cw_good") : t("cw_great");
 }
 function comfortPill(c, label){
   if(!c) return `<b class="cpill" style="background:rgba(143,169,187,.15);color:var(--muted)"`
-    + ` title="${label}: nėra duomenų">–</b>`;
+    + ` title="${label}: ${t("noData")}">–</b>`;
   const h = comfortHue(c.score);
-  const t = `${label}: ${c.score}/100 — ${comfortWord(c.score)}`
-    + (c.partial ? " (dalinis — trūksta dalies parametrų)" : "");
+  const tip = `${label}: ${c.score}/100 — ${comfortWord(c.score)}`
+    + (c.partial ? t("partial") : "");
   return `<b class="cpill" style="background:hsla(${h},60%,50%,.18);color:hsl(${h},72%,62%)"`
-    + ` title="${t}">${c.partial?"~":""}${c.score}</b>`;
+    + ` title="${tip}">${c.partial?"~":""}${c.score}</b>`;
 }
 
 // Mėnesio „blogų dienų" palyginimas: skaičiai + taškelių eilutės
@@ -588,17 +718,17 @@ function badDaysHTML(daysA, daysB){
       // abu gali būti kartu (bloga diena su dienos lietumi)
       const wetDay = d.rain1020 !== null && d.rain1020 >= DAYRAIN.minMm;
       const cls = (info.bad ? " bd" : "") + (wetDay ? " rn" : "");
-      const why = info.why + (wetDay ? `; lietus ${DAYRAIN.fromH-1}–${DAYRAIN.toH} val.: ${d.rain1020.toFixed(1)} mm` : "");
+      const why = info.why + (wetDay ? t("bd_rainWin", DAYRAIN.fromH-1, DAYRAIN.toH, d.rain1020.toFixed(1)) : "");
       dots += `<span class="dot${cls}" title="${d.date}: ${why}"></span>`;
     });
     return {dots, bad, known};
   };
   const a = row(daysA), b = row(daysB);
   return `<div class="bad">
-    <div>Blogos dienos: <b>${a.bad} iš ${a.known}</b> <span>(pernai: ${b.bad} iš ${b.known})</span></div>
-    <div class="dots"><span class="lab" style="color:var(--now)">Š</span>${a.dots}</div>
-    <div class="dots"><span class="lab" style="color:var(--past)">P</span>${b.dots}</div>
-    <div class="badcap">oranžinis — bloga diena · mėlynas apvadas — lietus 10–20 val.</div>
+    <div>${t("badDaysLabel")} <b>${a.bad} ${t("of")} ${a.known}</b> <span>${t("badDaysPast", b.bad, b.known)}</span></div>
+    <div class="dots"><span class="lab" style="color:var(--now)">${t("abbrNow")}</span>${a.dots}</div>
+    <div class="dots"><span class="lab" style="color:var(--past)">${t("abbrPast")}</span>${b.dots}</div>
+    <div class="badcap">${t("badCap")}</div>
   </div>`;
 }
 
@@ -630,7 +760,7 @@ function cityCard(c, idx, now, past, o){
 
   // suma + paros vidurkis, kai laikotarpis ilgesnis nei diena
   const rainVal = r => r===null ? "–"
-    : r.toFixed(1)+" mm" + (o.nDays>1 && r>0 ? ` <small>(${(r/o.nDays).toFixed(1)}/d.)</small>` : "");
+    : r.toFixed(1)+" mm" + (o.nDays>1 && r>0 ? t("perDay", (r/o.nDays).toFixed(1)) : "");
 
   let comfortHTML = "";
   if(o.cNow !== undefined){
@@ -640,7 +770,7 @@ function cityCard(c, idx, now, past, o){
       delta = `<span class="cdelta">${d>0?"+":""}${d}</span>`;
     }
     comfortHTML = `<div class="comfort">
-      <span>Komfortas lauke</span>
+      <span>${t("comfortLabel")}</span>
       <span class="cvals">
         <i class="mk mkn"></i>${comfortPill(o.cNow, o.tagNow)}
         <i class="mk mkp"></i>${comfortPill(o.cPast, o.tagPast)}
@@ -650,14 +780,14 @@ function cityCard(c, idx, now, past, o){
   }
 
   return `<div class="city${o.tappable?" tappable":""}" data-i="${idx}">
-    <h2>${c.name} ${deltaHTML}</h2>
+    <h2>${cityLabel(c)} ${deltaHTML}</h2>
     <div class="rows">
       ${row(o.tagNow, now, "now")}
       ${row(o.tagPast, past, "past")}
     </div>
     ${comfortHTML}
     <div class="rain">
-      <span>Krituliai${o.rainNow?" "+o.rainNow:""}: <b class="bn">${rainVal(now.rain)}</b></span>
+      <span>${t("rainLabel")}${o.rainNow?" "+o.rainNow:""}: <b class="bn">${rainVal(now.rain)}</b></span>
       <span>${o.rainPast?o.rainPast+": ":""}<b class="bp">${rainVal(past.rain)}</b></span>
     </div>
     ${o.badHTML || ""}
@@ -678,7 +808,7 @@ function pathFor(vals, x, y){
 
 function chartSVG(A, B){
   const all = [...A.temps, ...B.temps].filter(v => v!==null && v!==undefined);
-  if(!all.length) return `<div class="nochart">Valandinių duomenų nėra</div>`;
+  if(!all.length) return `<div class="nochart">${t("noHourly")}</div>`;
   let min = Math.min(...all), max = Math.max(...all);
   if(max - min < 2){ const m=(max+min)/2; min = m-1; max = m+1; }
   const step = [0.5,1,2,5,10,20].find(s => (max-min)/s <= 5) || 20;
@@ -714,7 +844,7 @@ function chartSVG(A, B){
         : "").join("");
     bars = bar(A.rain,"ra",-3.2) + bar(B.rain,"rb",0.2);
     const lbl = peak >= 10 ? Math.round(peak) : peak.toFixed(1);
-    raxis = `<text class="rl" x="${W-2}" y="${T+4}">▲ ${lbl} mm/val.</text>`;
+    raxis = `<text class="rl" x="${W-2}" y="${T+4}">${t("mmPerH", lbl)}</text>`;
   }
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}${bars}
@@ -764,36 +894,37 @@ function isoAlign(d){
 
 function holidayList(y){
   const E = easter(y), L = [];
-  const add = (d, name, who) => L.push({k:fmtDate(d), name, who});
-  add(new Date(y,0,1),  "Naujieji metai", "LT, LV");
-  add(new Date(y,1,16), "Valstybės atkūrimo diena", "LT");
-  add(new Date(y,2,11), "Nepriklausomybės atkūrimo diena", "LT");
-  add(shift(E,-2),      "Didysis penktadienis", "LV");
-  add(E,                "Šv. Velykos", "LT, LV");
-  add(shift(E,1),       "Antroji Velykų diena", "LT, LV");
-  add(new Date(y,4,1),  "Darbo diena", "LT, LV");
-  add(new Date(y,4,4),  "Latvijos nepriklausomybės atkūrimo diena", "LV");
-  add(nthSunday(y,4,1), "Motinos diena", "LT");
-  add(nthSunday(y,4,2), "Motinos diena", "LV");
-  add(nthSunday(y,5,1), "Tėvo diena", "LT");
-  add(shift(E,49),      "Sekminės (Vasarsvētki)", "LV");
-  add(new Date(y,5,23), "Līgo (Joninių išvakarės)", "LV");
-  add(new Date(y,5,24), "Joninės / Jāņi", "LT, LV");
-  add(new Date(y,6,6),  "Valstybės (Mindaugo karūnavimo) diena", "LT");
-  add(new Date(y,7,15), "Žolinė", "LT");
-  add(new Date(y,10,1), "Visų šventųjų diena", "LT");
-  add(new Date(y,10,2), "Vėlinės", "LT");
-  add(new Date(y,10,18),"Latvijos Respublikos paskelbimo diena", "LV");
-  add(new Date(y,11,24),"Kūčios", "LT, LV");
-  add(new Date(y,11,25),"Šv. Kalėdos", "LT, LV");
-  add(new Date(y,11,26),"Antroji Kalėdų diena", "LT, LV");
-  add(new Date(y,11,31),"Naujųjų metų išvakarės (Vecgada diena)", "LV");
+  // name — LT pavadinimas, nameEn — EN; rodomas pagal pasirinktą kalbą
+  const add = (d, name, nameEn, who) => L.push({k:fmtDate(d), name: lang==="en" ? nameEn : name, who});
+  add(new Date(y,0,1),  "Naujieji metai", "New Year's Day", "LT, LV");
+  add(new Date(y,1,16), "Valstybės atkūrimo diena", "Restoration of the State Day", "LT");
+  add(new Date(y,2,11), "Nepriklausomybės atkūrimo diena", "Restoration of Independence Day", "LT");
+  add(shift(E,-2),      "Didysis penktadienis", "Good Friday", "LV");
+  add(E,                "Šv. Velykos", "Easter Sunday", "LT, LV");
+  add(shift(E,1),       "Antroji Velykų diena", "Easter Monday", "LT, LV");
+  add(new Date(y,4,1),  "Darbo diena", "Labour Day", "LT, LV");
+  add(new Date(y,4,4),  "Latvijos nepriklausomybės atkūrimo diena", "Latvia Restoration of Independence Day", "LV");
+  add(nthSunday(y,4,1), "Motinos diena", "Mother's Day", "LT");
+  add(nthSunday(y,4,2), "Motinos diena", "Mother's Day", "LV");
+  add(nthSunday(y,5,1), "Tėvo diena", "Father's Day", "LT");
+  add(shift(E,49),      "Sekminės (Vasarsvētki)", "Pentecost (Vasarsvētki)", "LV");
+  add(new Date(y,5,23), "Līgo (Joninių išvakarės)", "Līgo (Midsummer Eve)", "LV");
+  add(new Date(y,5,24), "Joninės / Jāņi", "St. John's Day / Jāņi", "LT, LV");
+  add(new Date(y,6,6),  "Valstybės (Mindaugo karūnavimo) diena", "Statehood (Coronation of Mindaugas) Day", "LT");
+  add(new Date(y,7,15), "Žolinė", "Assumption Day", "LT");
+  add(new Date(y,10,1), "Visų šventųjų diena", "All Saints' Day", "LT");
+  add(new Date(y,10,2), "Vėlinės", "All Souls' Day", "LT");
+  add(new Date(y,10,18),"Latvijos Respublikos paskelbimo diena", "Proclamation of the Republic of Latvia Day", "LV");
+  add(new Date(y,11,24),"Kūčios", "Christmas Eve", "LT, LV");
+  add(new Date(y,11,25),"Šv. Kalėdos", "Christmas Day", "LT, LV");
+  add(new Date(y,11,26),"Antroji Kalėdų diena", "Second Day of Christmas", "LT, LV");
+  add(new Date(y,11,31),"Naujųjų metų išvakarės (Vecgada diena)", "New Year's Eve (Vecgada diena)", "LV");
   return L;
 }
 
 function monthHTML(y, m, map, cur){
   const last = new Date(y, m+1, 0);
-  const name = new Date(y, m, 1).toLocaleDateString("lt-LT", {month:"long"});
+  const name = new Date(y, m, 1).toLocaleDateString(loc(), {month:"long"});
   const todayKey = fmtDate(new Date());
   let d = shift(new Date(y,m,1), -((new Date(y,m,1).getDay()+6)%7));
   let rows = "";
@@ -813,10 +944,11 @@ function monthHTML(y, m, map, cur){
   }
   const pre = `${y}-${String(m+1).padStart(2,"0")}`;
   const list = Object.keys(map).filter(k=>k.startsWith(pre)).sort()
-    .map(k => map[k].map(h=>`<div><b>${+k.slice(8)} d.</b> ${h.name} · ${h.who}</div>`).join("")).join("");
+    .map(k => map[k].map(h=>`<div><b>${t("calDay", +k.slice(8))}</b> ${h.name} · ${h.who}</div>`).join("")).join("");
+  const dows = t("dows");
   return `<div class="month"><h3>${name} <span class="${cur?"yc":"yp"}">${y}</span></h3>
     <table>
-      <tr><th class="wk">sav.</th><th>Pr</th><th>An</th><th>Tr</th><th>Kt</th><th>Pn</th><th>Št</th><th>Sk</th></tr>
+      <tr><th class="wk">${t("weekAbbr")}</th>${dows.map(d=>`<th>${d}</th>`).join("")}</tr>
       ${rows}
     </table>
     ${list ? `<div class="mh">${list}</div>` : ""}</div>`;
@@ -836,11 +968,11 @@ function calendarHTML(y){
     months += monthHTML(y-1, m, mapPrev, false) + monthHTML(y, m, mapCur, true);
   }
   return `<div class="calnav">
-      <button id="cprev" aria-label="Ankstesni metai">‹</button>
+      <button id="cprev" aria-label="${t("prevYear")}">‹</button>
       <b>${y-1} vs ${y}</b>
-      <button id="cnext" aria-label="Kiti metai">›</button>
+      <button id="cnext" aria-label="${t("nextYear")}">›</button>
     </div>
-    <div class="callegend"><span class="cl-lt">LT šventė</span><span class="cl-lv">LV šventė</span></div>
+    <div class="callegend"><span class="cl-lt">${t("ltHoliday")}</span><span class="cl-lv">${t("lvHoliday")}</span></div>
     <div class="calgrid">${months}</div>`;
 }
 
@@ -850,14 +982,14 @@ function setLegend(a, b){
   document.getElementById("legPast").textContent = b;
 }
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
-function fDow(d){ return d.toLocaleDateString("lt-LT", {weekday:"short"}); }
+function fDow(d){ return d.toLocaleDateString(loc(), {weekday:"short"}); }
 // Miestai kraunami nepriklausomai: nepavykusiam rodoma klaida jo kortelėje,
 // kiti rodomi normaliai; jei nepavyko visi — bendras pranešimas
 async function renderCities(buildCard){
   const results = await Promise.allSettled(CITIES.map(buildCard));
   if(!results.some(r => r.status === "fulfilled")) throw results[0].reason;
   return results.map((r, i) => r.status === "fulfilled" ? r.value
-    : `<div class="city"><h2>${CITIES[i].name}</h2><div class="nochart">${errText(r.reason)}</div></div>`);
+    : `<div class="city"><h2>${cityLabel(CITIES[i])}</h2><div class="nochart">${errText(r.reason)}</div></div>`);
 }
 
 async function render(){
@@ -879,7 +1011,7 @@ async function render(){
   }
 
   statusEl.style.display = "block";
-  statusEl.textContent = "Kraunami duomenys…";
+  statusEl.textContent = t("loading");
   box.innerHTML = "";
 
   try{
@@ -901,14 +1033,14 @@ async function render(){
         dB = isoAlign(dA);
         const isToday = fmtDate(dA) === fmtDate(new Date());
         if(isToday){
-          lA = "Šiemet"; lB = "Pernai"; rA = "šiemet"; rB = "pernai";
-          setLegend(`Šiemet · ${fDow(dA)} ${fShort(dA)}`, `Pernai · ${fDow(dB)} ${fShort(dB)}`);
+          lA = t("thisYear"); lB = t("lastYear"); rA = t("thisYearLc"); rB = t("lastYearLc");
+          setLegend(`${t("thisYear")} · ${fDow(dA)} ${fShort(dA)}`, `${t("lastYear")} · ${fDow(dB)} ${fShort(dB)}`);
         }else{
           lA = rA = fShortY(dA); lB = rB = fShortY(dB);
           setLegend(`${fShortY(dA)} (${fDow(dA)})`, `${fShortY(dB)} (${fDow(dB)})`);
         }
         document.getElementById("dateLabel").textContent =
-          cap(dA.toLocaleDateString("lt-LT", {weekday:"long"}));
+          cap(dA.toLocaleDateString(loc(), {weekday:"long"}));
       }
       chartDays = {dA, dB};
       html = await renderCities(async (c, i) => {
@@ -941,16 +1073,16 @@ async function render(){
       const be = shift(bs, len);
       if(period === "custom"){
         lA = fShortY(s); lB = fShortY(bs);
-        document.getElementById("dateLabel").textContent = `${len+1} d. laikotarpis`;
+        document.getElementById("dateLabel").textContent = t("periodDays", len+1);
         document.getElementById("cmpInfo").innerHTML =
-          `Lyginama su: <b>${fmtDate(bs)} – ${fmtDate(be)}</b>`;
+          t("comparedTo", `${fmtDate(bs)} – ${fmtDate(be)}`);
         setLegend(`${fmtDate(s)} – ${fmtDate(e2)}`, `${fmtDate(bs)} – ${fmtDate(be)}`);
       }else{
-        lA = "Šiemet"; lB = "Pernai"; rA = "šiemet"; rB = "pernai";
+        lA = t("thisYear"); lB = t("lastYear"); rA = t("thisYearLc"); rB = t("lastYearLc");
         document.getElementById("dateLabel").textContent = period === "week"
-          ? `${isoWeek(e2)} savaitė`
-          : `${cap(e2.toLocaleDateString("lt-LT", {month:"long"}))}, 1–${e2.getDate()} d.`;
-        setLegend(`Šiemet · ${fShort(s)} – ${fShort(e2)}`, `Pernai · ${fShort(bs)} – ${fShort(be)}`);
+          ? t("weekLabel", isoWeek(e2))
+          : t("monthRange", cap(e2.toLocaleDateString(loc(), {month:"long"})), e2.getDate());
+        setLegend(`${t("thisYear")} · ${fShort(s)} – ${fShort(e2)}`, `${t("lastYear")} · ${fShort(bs)} – ${fShort(be)}`);
       }
       html = await renderCities(async (c, i) => {
         const [da, db] = await Promise.all([rangeDaily(c, s, e2), rangeDaily(c, bs, be)]);
@@ -968,8 +1100,8 @@ async function render(){
   }catch(e){
     if(seq !== renderSeq) return;
     statusEl.textContent = String(e && e.message || e).includes("429")
-      ? "Orų serveris laikinai pristabdė užklausas (per daug per minutę). Palauk minutę ir paspausk ⟳."
-      : "Nepavyko gauti duomenų. Patikrink interneto ryšį ir bandyk dar kartą.\n(" + e.message + ")";
+      ? t("err429")
+      : t("errGeneric", e.message);
   }
 }
 
@@ -1050,7 +1182,7 @@ document.getElementById("cities").addEventListener("click", async e => {
   if(!boxEl.hidden){ boxEl.hidden = true; return; }
   boxEl.hidden = false;
   if(boxEl.dataset.loaded) return;
-  boxEl.innerHTML = '<div class="nochart">Kraunama…</div>';
+  boxEl.innerHTML = `<div class="nochart">${t("chartLoading")}</div>`;
   const c = CITIES[+card.dataset.i];
   if(!chartDays) return;
   const {dA, dB} = chartDays;
@@ -1059,7 +1191,7 @@ document.getElementById("cities").addEventListener("click", async e => {
     boxEl.innerHTML = chartSVG(ra, rb);
     boxEl.dataset.loaded = "1";
   }catch(err){
-    boxEl.innerHTML = '<div class="nochart">Nepavyko užkrauti (' + err.message + ')</div>';
+    boxEl.innerHTML = `<div class="nochart">${t("loadFail", err.message)}</div>`;
   }
 });
 
@@ -1074,7 +1206,7 @@ document.getElementById("tabs").addEventListener("click", e => {
 // Miestų pasirinkimas: chips apačioje, išsaugoma localStorage
 function renderCityPick(){
   document.getElementById("cityPick").innerHTML = ALL_CITIES.map(c =>
-    `<button data-city="${c.name}" class="${activeCities.has(c.name)?"active":""}">${c.name}</button>`
+    `<button data-city="${c.name}" class="${activeCities.has(c.name)?"active":""}">${cityLabel(c)}</button>`
   ).join("");
 }
 document.getElementById("cityPick").addEventListener("click", e => {
@@ -1093,6 +1225,40 @@ document.getElementById("cityPick").addEventListener("click", e => {
   render();
 });
 renderCityPick();
+
+// Statinių (HTML) tekstų vertimas pagal pasirinktą kalbą
+function applyI18n(){
+  document.documentElement.lang = lang;
+  document.title = t("title");
+  document.querySelector("h1").textContent = t("h1");
+  document.getElementById("refresh").setAttribute("aria-label", t("refresh"));
+  document.querySelectorAll("#tabs button").forEach(b => b.textContent = t("tab_"+b.dataset.p));
+  document.getElementById("dayPickLabel").textContent = t("dayPickLabel");
+  document.querySelectorAll("#seg button").forEach(b => b.textContent = t("seg_"+b.dataset.s));
+  document.getElementById("lblDateA").textContent = t("lbl_dateA");
+  document.getElementById("lblDateB").textContent = t("lbl_dateB");
+  document.getElementById("quickCmpLabel").textContent = t("quickCmp");
+  document.querySelectorAll("#chipsSingle button").forEach(b => b.textContent = t("chip_"+b.dataset.c));
+  document.getElementById("lblFrom").textContent = t("lbl_from");
+  document.getElementById("lblTo").textContent = t("lbl_to");
+  document.getElementById("cmpWhatLabel").textContent = t("cmpWhat");
+  document.querySelectorAll("#chipsRange button").forEach(b => b.textContent = t("rchip_"+b.dataset.r));
+  document.getElementById("hint").textContent = t("hint");
+  document.getElementById("citiesLabel").textContent = t("cities");
+  document.querySelectorAll("#langSel button").forEach(b => b.classList.toggle("active", b.dataset.l===lang));
+}
+applyI18n();
+
+// Kalbos perjungimas — įsimenamas localStorage, perpiešiama viskas
+document.getElementById("langSel").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b || b.dataset.l === lang) return;
+  lang = b.dataset.l;
+  try{ localStorage.setItem("orai.lang", lang); }catch(e2){}
+  applyI18n();
+  renderCityPick();
+  render();
+});
 
 // Rankinis atnaujinimas — išvalom kešą, kad duomenys būtų tikrai švieži
 const refreshBtn = document.getElementById("refresh");
