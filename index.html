@@ -711,7 +711,7 @@ function badDaysHTML(daysA, daysB){
     let dots = "", bad = 0, known = 0;
     days.forEach(d => {
       const info = badDayInfo(d);
-      if(!info){ dots += `<span class="dot na" title="${d.date}: nėra duomenų"></span>`; return; }
+      if(!info){ dots += `<span class="dot na" title="${d.date}: ${t("noData")}"></span>`; return; }
       known++;
       if(info.bad) bad++;
       // užpildas — gera/bloga diena, mėlynas apvadas — lietus 10–20 val.;
