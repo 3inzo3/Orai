@@ -32,10 +32,10 @@ body{
   min-height:100vh;
   padding:max(12px,env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));
 }
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px}
 h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 #updated{display:block;font-size:.68rem;color:var(--muted);margin-top:2px}
-.hright{display:flex;align-items:center;gap:10px}
+.hright{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 #dateLabel{font-size:.78rem;color:var(--muted)}
 #refresh{
   background:var(--panel2);border:1px solid var(--line);color:var(--text);
@@ -158,6 +158,17 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 .chart .ln-past{stroke:var(--past)}
 #hint{font-size:.7rem;color:var(--muted);margin:-4px 2px 10px;opacity:.8}
 #status{text-align:center;color:var(--muted);font-size:.85rem;padding:30px 10px;line-height:1.5}
+.errmsg{white-space:pre-line}
+.retrybtn{margin-top:14px;background:var(--now);color:#21303d;border:0;border-radius:9px;padding:9px 20px;font:inherit;font-weight:700;font-size:.85rem;cursor:pointer}
+/* Skeleton (vietoj tuščio „Kraunama…") */
+.city.sk{pointer-events:none;animation:none}
+.sk-line{height:12px;border-radius:6px;background:var(--panel2);margin:9px 0;position:relative;overflow:hidden}
+.sk-h2{height:18px;width:45%;margin-bottom:14px}
+.sk-sm{width:62%}
+@keyframes shimmer{to{transform:translateX(100%)}}
+/* Tap-to-reveal patarimas (telefone vietoj title hover) */
+.tip{position:fixed;z-index:50;max-width:240px;background:#0a1620;border:1px solid var(--line);color:var(--text);font-size:.74rem;line-height:1.35;padding:7px 10px;border-radius:9px;box-shadow:0 6px 20px rgba(0,0,0,.45);pointer-events:none}
+.cpill,.dot,.fchol{cursor:pointer}
 #cityBox{margin-top:6px}
 /* Kalendorius */
 .calnav{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:12px}
@@ -185,14 +196,16 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
 /* Animacijos */
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:no-preference){
-  .bar i{transition:width .5s ease}
-  .tabs button{transition:background-color .25s ease,color .25s ease}
-  .city,.month{animation:rise .4s ease both}
-  .city:nth-child(2),.month:nth-child(2){animation-delay:.06s}
-  .city:nth-child(3),.month:nth-child(3){animation-delay:.12s}
-  .city:nth-child(4),.month:nth-child(4){animation-delay:.18s}
+  .bar i{transition:width .3s ease}
+  .tabs button,.subtabs button,.seg button,.langsel button{transition:background-color .18s ease,color .18s ease}
+  .city:not(.sk),.month{animation:rise .2s ease both}
+  .city:not(.sk):nth-child(2),.month:nth-child(2){animation-delay:.04s}
+  .city:not(.sk):nth-child(3),.month:nth-child(3){animation-delay:.08s}
+  .city:not(.sk):nth-child(4),.month:nth-child(4){animation-delay:.12s}
   .city.tappable:active{transform:scale(.985)}
-  .chartBox{animation:rise .3s ease}
+  .chartBox{animation:rise .2s ease}
+  .sk-line::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);animation:shimmer 1.2s infinite}
 }
 </style>
 </head>
@@ -212,17 +225,17 @@ h1{font-size:1.15rem;font-weight:700;letter-spacing:.3px}
   </div>
 </header>
 
-<div class="tabs" id="tabs">
-  <button data-g="compare" class="active">Palyginti</button>
-  <button data-g="forecast">Prognozė</button>
-  <button data-g="calendar">Kalendorius</button>
+<div class="tabs" id="tabs" role="tablist">
+  <button role="tab" data-g="compare" class="active">Palyginti</button>
+  <button role="tab" data-g="forecast">Prognozė</button>
+  <button role="tab" data-g="calendar">Kalendorius</button>
 </div>
 
-<div class="subtabs" id="subtabs">
-  <button data-p="day" class="active">Diena</button>
-  <button data-p="week">Savaitė</button>
-  <button data-p="month">Mėnuo</button>
-  <button data-p="custom">Data</button>
+<div class="subtabs" id="subtabs" role="tablist">
+  <button role="tab" data-p="day" class="active">Diena</button>
+  <button role="tab" data-p="week">Savaitė</button>
+  <button role="tab" data-p="month">Mėnuo</button>
+  <button role="tab" data-p="custom">Data</button>
 </div>
 
 <div class="pickrow" id="dayPickRow" style="margin:-6px 0 14px" hidden>
@@ -338,6 +351,7 @@ const I18N = {
     thisYear:"Šiemet", lastYear:"Pernai", thisYearLc:"šiemet", lastYearLc:"pernai",
     hint:"Spustelėk miestą — valandų grafikas (temperatūra ir krituliai)",
     loading:"Kraunami duomenys…",
+    retry:"Bandyti vėl",
     cities:"Miestai",
     updatedPre:"atnaujinta ",
     tooMany:"Per daug užklausų — palauk minutę ir spausk ⟳",
@@ -395,6 +409,7 @@ const I18N = {
     thisYear:"This year", lastYear:"Last year", thisYearLc:"this year", lastYearLc:"last year",
     hint:"Tap a city — hourly chart (temperature and precipitation)",
     loading:"Loading data…",
+    retry:"Try again",
     cities:"Cities",
     updatedPre:"updated ",
     tooMany:"Too many requests — wait a minute and press ⟳",
@@ -830,7 +845,8 @@ function cityCard(c, idx, now, past, o){
     </div>`;
   }
 
-  return `<div class="city${o.tappable?" tappable":""}" data-i="${idx}">
+  const tapAttr = o.tappable ? ` role="button" tabindex="0" aria-expanded="false"` : "";
+  return `<div class="city${o.tappable?" tappable":""}" data-i="${idx}"${tapAttr}>
     <h2>${cityLabel(c)} ${deltaHTML}</h2>
     <div class="rows">
       ${row(o.tagNow, now, "now")}
@@ -1099,9 +1115,25 @@ function periodGroup(p){ return p==="year" ? "calendar" : p==="forecast" ? "fore
 // Atnaujina tabų ir poskyrių aktyvumą bei poskyrių juostos matomumą
 function updateTabUI(){
   const g = periodGroup(period);
-  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("active", x.dataset.g===g));
+  document.querySelectorAll("#tabs button").forEach(x => {
+    const on = x.dataset.g===g;
+    x.classList.toggle("active", on); x.setAttribute("aria-selected", on);
+  });
   document.getElementById("subtabs").hidden = g !== "compare";
-  document.querySelectorAll("#subtabs button").forEach(x => x.classList.toggle("active", x.dataset.p===period));
+  document.querySelectorAll("#subtabs button").forEach(x => {
+    const on = x.dataset.p===period;
+    x.classList.toggle("active", on); x.setAttribute("aria-selected", on);
+  });
+  // Perjungiamų mygtukų aria-pressed pagal .active būseną
+  ["#seg","#fcSeg","#chipsRange","#langSel","#cityPick"].forEach(sel =>
+    document.querySelectorAll(sel+" button").forEach(b =>
+      b.setAttribute("aria-pressed", b.classList.contains("active"))));
+}
+// Skeleton kortelės kraunant — vietoj tuščio „Kraunama…", kad nemirgėtų
+function skeletonHTML(){
+  const card = `<div class="city sk"><div class="sk-line sk-h2"></div>`
+    + `<div class="sk-line"></div><div class="sk-line"></div><div class="sk-line sk-sm"></div></div>`;
+  return Array(Math.max(1, CITIES.length)).fill(card).join("");
 }
 
 async function render(){
@@ -1127,9 +1159,8 @@ async function render(){
     return;
   }
 
-  statusEl.style.display = "block";
-  statusEl.textContent = t("loading");
-  box.innerHTML = "";
+  statusEl.style.display = "none";
+  box.innerHTML = skeletonHTML();
 
   try{
     let html;
@@ -1235,9 +1266,10 @@ async function render(){
     markUpdated();
   }catch(e){
     if(seq !== renderSeq) return;
-    statusEl.textContent = String(e && e.message || e).includes("429")
-      ? t("err429")
-      : t("errGeneric", e.message);
+    box.innerHTML = "";
+    const msg = String(e && e.message || e).includes("429") ? t("err429") : t("errGeneric", e.message);
+    statusEl.style.display = "block";
+    statusEl.innerHTML = `<div class="errmsg">${msg}</div><button id="retry" class="retrybtn">${t("retry")}</button>`;
   }
 }
 
@@ -1303,8 +1335,31 @@ document.getElementById("chipsRange").addEventListener("click", e => {
   render();
 });
 
+/* Tap-to-reveal patarimas: telefone nėra hover, tad info iš title rodom
+   paspaudus ant komforto pill'o / blogų dienų taškelio / šventės žymos */
+let tipEl = null;
+function showTip(el){
+  if(!tipEl){ tipEl = document.createElement("div"); tipEl.className = "tip"; tipEl.hidden = true; document.body.appendChild(tipEl); }
+  const txt = el.getAttribute("title");
+  if(!txt) return;
+  if(tipEl._for === el && !tipEl.hidden){ tipEl.hidden = true; tipEl._for = null; return; }  // perjungimas
+  tipEl.textContent = txt;
+  tipEl.hidden = false;
+  const r = el.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.innerWidth - 8 - tipEl.offsetWidth, r.left + r.width/2 - tipEl.offsetWidth/2));
+  tipEl.style.left = left + "px";
+  tipEl.style.top = (r.bottom + 6) + "px";
+  tipEl._for = el;
+}
+function hideTip(){ if(tipEl && !tipEl.hidden){ tipEl.hidden = true; tipEl._for = null; } }
+document.addEventListener("click", e => {
+  if(!e.target.closest(".cpill,.dot,.fchol")) hideTip();
+});
+
 // Kalendoriaus navigacija + valandų grafiko išskleidimas
 document.getElementById("cities").addEventListener("click", async e => {
+  const tipT = e.target.closest(".cpill,.dot,.fchol");
+  if(tipT){ showTip(tipT); return; }
   if(period === "year"){
     if(e.target.id === "cprev"){ calYear--; render(); }
     else if(e.target.id === "cnext"){ calYear++; render(); }
@@ -1315,8 +1370,9 @@ document.getElementById("cities").addEventListener("click", async e => {
   if(!card || card.dataset.i === undefined) return;
   const boxEl = card.querySelector(".chartBox");
   if(!boxEl) return;
-  if(!boxEl.hidden){ boxEl.hidden = true; return; }
+  if(!boxEl.hidden){ boxEl.hidden = true; card.setAttribute("aria-expanded", "false"); return; }
   boxEl.hidden = false;
+  card.setAttribute("aria-expanded", "true");
   if(boxEl.dataset.loaded) return;
   boxEl.innerHTML = `<div class="nochart">${t("chartLoading")}</div>`;
   const c = CITIES[+card.dataset.i];
@@ -1329,6 +1385,15 @@ document.getElementById("cities").addEventListener("click", async e => {
   }catch(err){
     boxEl.innerHTML = `<div class="nochart">${t("loadFail", err.message)}</div>`;
   }
+});
+// Klaviatūra: Enter/Tarpas ant kortelės išskleidžia valandų grafiką
+document.getElementById("cities").addEventListener("keydown", e => {
+  const card = e.target.closest(".city.tappable");
+  if(card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); card.click(); }
+});
+// „Bandyti vėl" po klaidos
+document.getElementById("status").addEventListener("click", e => {
+  if(e.target.id === "retry"){ clearData(); render(); }
 });
 
 // Viršutiniai tabai (grupės): „Palyginti" grąžina paskutinį poskyrį
